@@ -883,8 +883,10 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
                         val sub = o["sub_state"] as? kotlinx.serialization.json.JsonObject
                         "state ${o["debug_source"]?.jsonPrimitive?.content} seq=${o["seq_num"]} pos=${sub?.get("position")} prev=${o["previous_position"]}"
                     }
-                    "/melody/v1/msg/batch" in path -> "melody " + Json.parseToJsonElement(text).jsonObject["messages"]!!.jsonArray
-                        .joinToString(",") { it.jsonObject["type"]!!.jsonPrimitive.content }
+                    "/melody/v1/msg/batch" in path -> {
+                        val messages = Json.parseToJsonElement(text).jsonObject["messages"] as? kotlinx.serialization.json.JsonArray
+                        "melody " + (messages?.joinToString(",") { (it as? kotlinx.serialization.json.JsonObject)?.get("type")?.jsonPrimitive?.content.orEmpty() } ?: "")
+                    }
                     else -> path
                 }
             }.getOrDefault(path)

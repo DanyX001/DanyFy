@@ -978,12 +978,13 @@ object LyricsApi {
                 }
                 org.xmlpull.v1.XmlPullParser.TEXT -> {
                     val t = p.text
+                    val w = words
                     if (!inBody) { if (headKey != null && headSkip == 0) headText.append(t) }
-                    else if (words != null) when (role) {
+                    else if (w != null) when (role) {
                         null -> {
                             if (wordStart >= 0) word.append(t)
                             // Text between two words (a space): it belongs to the word before it.
-                            else if (words!!.isNotEmpty()) words!![words!!.lastIndex] = words!!.last().let { it.copy(text = it.text + t) }
+                            else if (w.isNotEmpty()) w[w.lastIndex] = w.last().let { it.copy(text = it.text + t) }
                             plain.append(t)
                         }
                         "x-bg" -> {
@@ -1000,7 +1001,8 @@ object LyricsApi {
                         headKey != null && headSkip > 0 -> headSkip--
                         headKey != null && p.name == "text" -> {
                             val text = tidy(headText).ifEmpty { null }
-                            if (text != null) (if (headKind == 1) headTranslation else headRoman)[headKey!!] = text
+                            val hk = headKey
+                            if (text != null && hk != null) (if (headKind == 1) headTranslation else headRoman)[hk] = text
                             headKey = null
                         }
                         p.name == "translation" || p.name == "transliteration" -> headKind = 0

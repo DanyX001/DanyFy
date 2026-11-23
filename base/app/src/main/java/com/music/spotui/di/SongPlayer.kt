@@ -1817,7 +1817,7 @@ object SongPlayer {
         }
         app.myspoti.host.android.Logbook.log("local: Spotify did not play $title within ${FALLBACK_START_MS / 1000} s: the queue goes on with ${next.title}")
         android.widget.Toast.makeText(Graph.app, Graph.app.getString(app.myspoti.engine.R.string.song_unavailable_skipped, title), android.widget.Toast.LENGTH_SHORT).show()
-        val name = rest!!.third
+        val name = rest?.third.orEmpty()
         playThroughExtensions(next.spotifyTrackId, next, name, fallback = {
             // The next one is not on the extensions either: Spotify is tried for it, watched the same way.
             spotifyPlayed.add(next.spotifyTrackId)

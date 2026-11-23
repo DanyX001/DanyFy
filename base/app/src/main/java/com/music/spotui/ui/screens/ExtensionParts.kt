@@ -483,9 +483,10 @@ internal fun Dot(color: Color, size: Dp = 10.dp) =
 
 @Composable
 internal fun Page(titleRes: Int?, navController: NavController, title: String? = null, top: @Composable () -> Unit = {}, content: @Composable () -> Unit) {
+    val displayTitle = title ?: titleRes?.let { stringResource(it) }.orEmpty()
     // Immersive look: the shared page scaffold (large title into the glass bar) around the same content.
     if (com.music.spotui.ui.navigation.isImmersive()) {
-        com.music.spotui.ui.immersive.pages.ImmersivePage(title = title ?: stringResource(titleRes!!), onBack = { navController.popBackStack() }) {
+        com.music.spotui.ui.immersive.pages.ImmersivePage(title = displayTitle, onBack = { navController.popBackStack() }) {
             item(key = "ext:top") { top() }
             item(key = "ext:content") { Column(Modifier.fillMaxWidth()) { content() } }
         }
@@ -496,7 +497,7 @@ internal fun Page(titleRes: Int?, navController: NavController, title: String? =
             IconButton(onClick = { navController.popBackStack() }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.accessibility_navigate_back), tint = AppText)
             }
-            Text(title ?: stringResource(titleRes!!), color = AppText, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(displayTitle, color = AppText, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         top()
         Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).navigationBarsPadding()) { content() }

@@ -536,8 +536,9 @@ class ArtworkProvider : android.content.ContentProvider() {
         val url = uri.getQueryParameter("u") ?: return null
         if (!allowed(url)) return null
         // Bounded: a binder thread must not wait on the network forever.
+        val ctx = context ?: return null
         val file = runCatching {
-            com.bumptech.glide.Glide.with(context!!).asFile().load(url).submit()
+            com.bumptech.glide.Glide.with(ctx).asFile().load(url).submit()
                 .get(15, java.util.concurrent.TimeUnit.SECONDS)
         }.getOrNull() ?: return null
         return android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_ONLY)

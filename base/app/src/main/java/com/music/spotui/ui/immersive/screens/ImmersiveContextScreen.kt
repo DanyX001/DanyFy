@@ -178,7 +178,10 @@ private const val FIND_ITEM_INDEX = 1
 fun ImmersiveContextScreen(navController: NavController, type: String, id: String) {
     val vm: ContextViewModel = viewModel(key = "$type:$id")
     // During composition, so a cached page is there for the very first frame.
-    remember(type, id) { vm.load(type, id) }
+    remember(type, id) {
+        vm.load(type, id)
+        true
+    }
     val resp by vm.page.collectAsState()
     BoxWithConstraints(Modifier.fillMaxSize().background(Immersive.Page)) {
         val sleeve = albumSleeve(maxWidth, maxHeight, com.music.spotui.ui.components.windowSize().large)

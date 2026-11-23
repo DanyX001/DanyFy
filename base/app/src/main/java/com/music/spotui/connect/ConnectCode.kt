@@ -120,8 +120,9 @@ object ConnectCode {
             if (answer.status in 400..499) storeRefresh(account, null)
             return null
         }
+        val token = answer.accessToken ?: return null
         answer.refreshToken?.let { storeRefresh(account, it) }
-        return Subject(answer.accessToken!!, CodeExchange.DESKTOP_CLIENT_ID, CodeExchange.DESKTOP_USER_AGENT)
+        return Subject(token, CodeExchange.DESKTOP_CLIENT_ID, CodeExchange.DESKTOP_USER_AGENT)
     }
 
     /** Spotify's consent page for its desktop client, then its token; its refresh token is kept. */
@@ -139,8 +140,9 @@ object ConnectCode {
         val answer = post(CodeExchange.consentForm(code, verifier), CodeExchange.DESKTOP_USER_AGENT)
         log("consent token: ${LogMask.redact(answer.summary)}")
         if (!answer.isToken) return null
+        val token = answer.accessToken ?: return null
         answer.refreshToken?.let { storeRefresh(account, it) }
-        return Subject(answer.accessToken!!, CodeExchange.DESKTOP_CLIENT_ID, CodeExchange.DESKTOP_USER_AGENT)
+        return Subject(token, CodeExchange.DESKTOP_CLIENT_ID, CodeExchange.DESKTOP_USER_AGENT)
     }
 
     /** A token Spotify's device-auth issues for [clientId], as the accesstoken login gets one (through the account's own path). */

@@ -96,7 +96,7 @@ internal class MediaDataSource : BaseDataSource(true), HttpDataSource {
         val n = try {
             s.read(buffer, offset, want)
         } catch (e: IOException) {
-            throw HttpDataSource.HttpDataSourceException.createForIOException(e, spec!!, HttpDataSource.HttpDataSourceException.TYPE_READ)
+            throw HttpDataSource.HttpDataSourceException.createForIOException(e, spec ?: androidx.media3.datasource.DataSpec(android.net.Uri.EMPTY), HttpDataSource.HttpDataSourceException.TYPE_READ)
         }
         if (n < 0) return C.RESULT_END_OF_INPUT
         if (toRead != C.LENGTH_UNSET.toLong()) toRead -= n

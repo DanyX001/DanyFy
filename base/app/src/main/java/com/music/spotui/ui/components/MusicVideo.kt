@@ -76,7 +76,7 @@ fun VideoSurface(modifier: Modifier = Modifier, active: Boolean = true, fitHeigh
     DisposableEffect(player, view, active, mine) {
         val v = view
         val attached = player != null && v != null && active && mine
-        if (attached) { player!!.setVideoTextureView(v); MusicVideoController.surfaces++ }
+        if (player != null && v != null && active && mine) { player.setVideoTextureView(v); MusicVideoController.surfaces++ }
         onDispose {
             if (attached) MusicVideoController.surfaces--
             if (player != null && v != null) player.clearVideoTextureView(v)
@@ -333,7 +333,15 @@ private fun RoundIcon(icon: Int, description: String, sizeDp: Int, flip: Boolean
 /** The clip filling the screen, landscape while it shows; back or the exit button leaves. */
 @Composable
 fun MusicVideoFullscreen() {
-    val activity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val activity = remember(context) {
+        var c = context
+        while (c is android.content.ContextWrapper) {
+            if (c is android.app.Activity) return@remember c
+            c = c.baseContext
+        }
+        null
+    }
     DisposableEffect(activity) {
         val before = activity?.requestedOrientation
         activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE

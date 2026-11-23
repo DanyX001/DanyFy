@@ -66,13 +66,22 @@ fun SpotuiTheme(
     }
     // A new wallpaper recreates the activity: its accent is read again (Material You, see DynamicColorPref).
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-    androidx.compose.runtime.remember(configuration) { com.music.spotui.data.preferences.DynamicColorPref.refresh() }
+    androidx.compose.runtime.remember(configuration) {
+        com.music.spotui.data.preferences.DynamicColorPref.refresh()
+        true
+    }
     // Dark only, like Spotify: a saved choice from the withdrawn light palette is ignored.
     val visualScheme: ColorScheme = spotifyColorScheme(AppAccent)
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as Activity).window
+            var c = view.context
+            var act: Activity? = null
+            while (c is android.content.ContextWrapper) {
+                if (c is Activity) { act = c; break }
+                c = c.baseContext
+            }
+            val window = act?.window ?: return@SideEffect
             window.attributes = window.attributes.apply { preferredRefreshRate = policy.displayRefreshCap }
             window.statusBarColor = Color.Transparent.toArgb()
             // White icons on the dark palette.

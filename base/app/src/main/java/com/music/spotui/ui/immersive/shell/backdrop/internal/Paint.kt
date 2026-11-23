@@ -24,5 +24,7 @@ internal fun Paint.blur(radius: Float) {
 }
 
 internal fun Paint.setRuntimeShader(runtimeShader: RuntimeShader?) {
-    this.asFrameworkPaint().shader = runtimeShader?.asAndroidRuntimeShader()
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        this.asFrameworkPaint().shader = runtimeShader?.asAndroidRuntimeShader()
+    }
 }

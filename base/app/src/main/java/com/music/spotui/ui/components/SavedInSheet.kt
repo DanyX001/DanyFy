@@ -224,7 +224,7 @@ fun SavedInSheet(
                         val pl = list[i]
                         if (pl.isFolder) {
                             FolderRow(pl.name, pluralStringResource(R.plurals.add_to_playlist_folder_subtitle_playlists_count, pl.trackCount, pl.trackCount.toString())) {
-                                folders.add(pl.folderUri!! to pl.name)
+                                pl.folderUri?.let { folders.add(it to pl.name) }
                             }
                             return@items
                         }

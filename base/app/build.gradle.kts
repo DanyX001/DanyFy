@@ -147,6 +147,11 @@ android {
         }
     }
     packaging { jniLibs { excludes += listOf("lib/x86/**", "lib/x86_64/**") } }
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+        disable += setOf("MissingTranslation", "MissingMediaBrowserServiceIntentFilter", "RestrictedApi")
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

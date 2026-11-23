@@ -38,7 +38,8 @@ object AacTranscoder {
             val sampleRate = inRate / step
             val channels = inFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtMost(2)
 
-            decoder = MediaCodec.createDecoderByType(inFormat.getString(MediaFormat.KEY_MIME)!!).apply {
+            val mime = inFormat.getString(MediaFormat.KEY_MIME) ?: throw IOException("missing mime type")
+            decoder = MediaCodec.createDecoderByType(mime).apply {
                 configure(inFormat, null, null, 0); start()
             }
             val outFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, sampleRate, channels).apply {
@@ -74,7 +75,7 @@ object AacTranscoder {
                             muxer.start()
                         }
                         o >= 0 -> {
-                            val buf = encoder.getOutputBuffer(o)!!
+                            val buf = encoder.getOutputBuffer(o) ?: continue
                             if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) info.size = 0
                             if (info.size > 0 && muxTrack >= 0) {
                                 buf.position(info.offset); buf.limit(info.offset + info.size)
@@ -93,7 +94,7 @@ object AacTranscoder {
                 if (!inputDone) {
                     val i = decoder.dequeueInputBuffer(TIMEOUT_US)
                     if (i >= 0) {
-                        val buf = decoder.getInputBuffer(i)!!
+                        val buf = decoder.getInputBuffer(i) ?: continue
                         val n = extractor.readSampleData(buf, 0)
                         if (n < 0) {
                             decoder.queueInputBuffer(i, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
@@ -112,7 +113,7 @@ object AacTranscoder {
                         if (f.containsKey(MediaFormat.KEY_PCM_ENCODING)) pcmEncoding = f.getInteger(MediaFormat.KEY_PCM_ENCODING)
                         decodedChannels = f.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
                     } else if (o >= 0) {
-                        val buf = decoder.getOutputBuffer(o)!!
+                        val buf = decoder.getOutputBuffer(o) ?: continue
                         buf.position(info.offset); buf.limit(info.offset + info.size)
                         pending = toPcm16(buf, pcmEncoding, decodedChannels, channels, step)
                         pendingOffset = 0
@@ -125,7 +126,7 @@ object AacTranscoder {
                 if (pcm != null) {
                     val i = encoder.dequeueInputBuffer(TIMEOUT_US)
                     if (i >= 0) {
-                        val buf = encoder.getInputBuffer(i)!!
+                        val buf = encoder.getInputBuffer(i) ?: continue
                         val n = minOf(buf.capacity(), pcm.size - pendingOffset)
                         buf.clear(); buf.put(pcm, pendingOffset, n)
                         val pts = framesFed * 1_000_000L / sampleRate

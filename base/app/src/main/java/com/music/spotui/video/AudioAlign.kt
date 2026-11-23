@@ -76,12 +76,15 @@ object AudioAlign {
         var closing = false
         try {
             ex.setDataSource(file.absolutePath)
-            val track = (0 until ex.trackCount).first { ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME)!!.startsWith("audio/") }
+            val track = (0 until ex.trackCount).firstOrNull { 
+                ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true 
+            } ?: return FloatArray(0)
             ex.selectTrack(track)
             val fmt = ex.getTrackFormat(track)
+            val mime = fmt.getString(MediaFormat.KEY_MIME) ?: return FloatArray(0)
             val durUs = if (fmt.containsKey(MediaFormat.KEY_DURATION)) fmt.getLong(MediaFormat.KEY_DURATION) else 0L
             val out = Resampler(fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE), decodeCapacity(durUs, maxSeconds))
-            val codec = MediaCodec.createDecoderByType(fmt.getString(MediaFormat.KEY_MIME)!!).also { decoderToRelease = it }
+            val codec = MediaCodec.createDecoderByType(mime).also { decoderToRelease = it }
             val codecName = codec.name
             // Asynchronous mode: the codec pipelines its buffers instead of answering one
             // frame per round trip (20 ms Opus frames made the synchronous loop crawl).
@@ -104,7 +107,8 @@ object AudioAlign {
                         return
                     }
                     try {
-                        val n = ex.readSampleData(c.getInputBuffer(index)!!, 0)
+                        val inBuf = c.getInputBuffer(index) ?: return
+                        val n = ex.readSampleData(inBuf, 0)
                         if (n < 0) {
                             c.queueInputBuffer(index, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             inputDone = true
@@ -118,7 +122,8 @@ object AudioAlign {
                 override fun onOutputBufferAvailable(c: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
                     if (closing) return
                     try {
-                        val bb = c.getOutputBuffer(index)!!.order(ByteOrder.nativeOrder())
+                        val outBuf = c.getOutputBuffer(index) ?: return
+                        val bb = outBuf.order(ByteOrder.nativeOrder())
                         bb.position(info.offset).limit(info.offset + info.size)
                         if (isFloat) {
                             val count = info.size / 4

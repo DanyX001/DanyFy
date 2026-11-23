@@ -18,7 +18,8 @@ internal object OrpheonRustBridge {
             val candidates = listOf(
                 File("../rust-audio/target/release/liborpheon_rust.so"),
                 File("rust-audio/target/release/liborpheon_rust.so"),
-                File("/root/Orpheon/base/rust-audio/target/release/liborpheon_rust.so"),
+                File("base/rust-audio/target/release/liborpheon_rust.so"),
+                File("/root/orpheon-v1.0.0-Beta-opt.9-src/base/rust-audio/target/release/liborpheon_rust.so"),
             )
             val hostSo = candidates.firstOrNull { it.isFile }
             if (hostSo != null) {

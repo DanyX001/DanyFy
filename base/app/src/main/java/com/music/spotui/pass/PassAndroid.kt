@@ -110,7 +110,7 @@ object PassAndroid {
                 "s" -> e.putString(k, v.v)
                 "ss" -> e.putStringSet(k, v.set.toSet())
             }
-            e.commit()
+            e.apply()
         }
         if (p.extensionFiles.isNotEmpty()) {
             val root = extensionsDir(c)

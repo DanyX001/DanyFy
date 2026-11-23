@@ -846,7 +846,9 @@ private fun AutoMixDurationBoundsRow() {
         }
         if (!valid) Text(stringResource(R.string.settings_automix_duration_error), color = com.music.spotui.ui.theme.AppAccent, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
         else if (minValue != automix.minDurationSeconds || maxValue != automix.maxDurationSeconds) {
-            androidx.compose.material3.TextButton(onClick = { automix.changeDurationBounds(minValue!!, maxValue!!) }, modifier = Modifier.align(androidx.compose.ui.Alignment.End)) {
+            androidx.compose.material3.TextButton(onClick = {
+                automix.changeDurationBounds(minValue, maxValue)
+            }, modifier = Modifier.align(androidx.compose.ui.Alignment.End)) {
                 Text(stringResource(R.string.settings_automix_duration_apply))
             }
         }

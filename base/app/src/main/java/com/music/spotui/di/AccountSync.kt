@@ -236,7 +236,7 @@ object AccountSync {
                 if (watch != null) { watch = null; if (!LocalPlayer.active.value) listen.stop("the watch stopped") }
                 return@post
             }
-            val uri = text("uri")!!
+            val uri = text("uri") ?: return@post
             val duration = text("durationMs")?.toLongOrNull() ?: 0L
             val position = text("positionMs")?.toLongOrNull() ?: 0L
             val playing = text("playing") == "true"
@@ -248,7 +248,7 @@ object AccountSync {
             watch = Watch(LocalNow(track = track, live = true, playing = playing, positionMs = position, durationMs = duration), SystemClock.elapsedRealtime())
             app.myspoti.host.android.Logbook.log("watch plays ${text("name")} (${if (playing) "playing" else "paused"} at ${position / 1000} s)")
             if (LocalPlayer.active.value) return@post
-            listen.onLocal(watchNow()!!)
+            watchNow()?.let { listen.onLocal(it) }
             // Nothing heard from the watch past the song's end (out of reach, switched off): the mirror ends.
             if (playing && duration > 0) main.postDelayed(watchGone, (duration - position).coerceAtLeast(0) + WATCH_GRACE_MS)
         }

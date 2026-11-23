@@ -302,9 +302,14 @@ def run_jvm_benchmarks():
     """Compile and execute the JVM microbenchmark harness."""
     classpath = find_jars_and_classes()
     cp_str = ":".join(classpath)
+    prelude_path = (BASE_DIR / "extensions/src/main/resources/app/myspoti/extensions/prelude.js").resolve().as_posix()
+    java_src = JVM_BENCH_JAVA_SOURCE.replace(
+        "/root/Orpheon/base/extensions/src/main/resources/app/myspoti/extensions/prelude.js",
+        prelude_path,
+    )
     with tempfile.TemporaryDirectory() as tmpdir:
         java_file = Path(tmpdir) / "OrpheonJvmBench.java"
-        java_file.write_text(JVM_BENCH_JAVA_SOURCE, encoding="utf-8")
+        java_file.write_text(java_src, encoding="utf-8")
         subprocess.run(
             [JAVAC_BIN, "-cp", cp_str, str(java_file)],
             check=True,

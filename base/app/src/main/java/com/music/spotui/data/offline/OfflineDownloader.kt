@@ -433,7 +433,10 @@ object OfflineDownloader {
                 file.format == "dash-flac" -> runInterruptible(Dispatchers.IO) {
                     DashFlacRemux.download("data:application/dash+xml;base64,${file.manifest}", out, file.headers)
                 }
-                else -> fetchWithProgress(r.trackId, file.url!!, out, file.headers)
+                else -> {
+                    val url = file.url ?: throw java.io.IOException("file has no url")
+                    fetchWithProgress(r.trackId, url, out, file.headers)
+                }
             } && out.length() >= 10_000 && runInterruptible(Dispatchers.IO) {
                 file.transform?.let { spec ->
                     val staged = File.createTempFile("download-transform-", ".partial", out.parentFile)

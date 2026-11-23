@@ -81,7 +81,7 @@ object AppUpdater {
     private const val MAX_APK_BYTES = 200L * 1024 * 1024
 
     private suspend fun download(release: UpdateChecker.Release, file: File): Unit = withContext(Dispatchers.IO) {
-        val dir = file.parentFile!!.apply { mkdirs() }
+        val dir = (file.parentFile ?: file.canonicalFile.parentFile ?: File(".")).apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }
         http.newCall(Request.Builder().url(release.apkUrl).build()).execute().use { r ->
             if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code}")

@@ -118,7 +118,7 @@ object LocalPlaylists {
     private fun itemOf(o: JSONObject) = LocalItem(o.getString("key"), o.getString("uri"), o.optString("title"),
         o.optString("artist"), o.optString("album"), o.optLong("duration"), o.optString("art"))
 
-    private fun items(a: JSONArray?) = (0 until (a?.length() ?: 0)).mapNotNull { runCatching { itemOf(a!!.getJSONObject(it)) }.getOrNull() }
+    private fun items(a: JSONArray?) = a?.let { arr -> (0 until arr.length()).mapNotNull { runCatching { itemOf(arr.getJSONObject(it)) }.getOrNull() } }.orEmpty()
 
     internal fun write(): String {
         val lists = JSONArray()

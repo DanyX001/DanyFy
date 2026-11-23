@@ -287,10 +287,16 @@ class CliReceiver : BroadcastReceiver() {
                 "length" -> a.changeMixLength(listOf("short", "balanced", "long").indexOf(c.value))
                 "tempo" -> a.changeTempoRange(listOf("strict", "normal", "wide").indexOf(c.value))
                 "pulse" -> a.changePulseLevel(listOf("off", "subtle", "strong").indexOf(c.value))
-                "duration-min" -> if (!a.changeDurationBounds(c.value!!.toInt(), a.maxDurationSeconds))
-                    throw CliError("automix.settings: min duration must be 0..90 seconds and not exceed a configured max")
-                "duration-max" -> if (!a.changeDurationBounds(a.minDurationSeconds, c.value!!.toInt()))
-                    throw CliError("automix.settings: max duration must be 0..90 seconds and at least the configured min; 0 means unlimited")
+                "duration-min" -> {
+                    val v = c.value?.toIntOrNull() ?: throw CliError("automix.settings: min duration must be an integer (0..90)")
+                    if (!a.changeDurationBounds(v, a.maxDurationSeconds))
+                        throw CliError("automix.settings: min duration must be 0..90 seconds and not exceed a configured max")
+                }
+                "duration-max" -> {
+                    val v = c.value?.toIntOrNull() ?: throw CliError("automix.settings: max duration must be an integer (0..90)")
+                    if (!a.changeDurationBounds(a.minDurationSeconds, v))
+                        throw CliError("automix.settings: max duration must be 0..90 seconds and at least the configured min; 0 means unlimited")
+                }
                 "performance-priority" -> a.changePerformancePriority(c.value == "on")
                 else -> app.myspoti.automix.segue.MixIdea.parse(c.name)?.let { a.changeIdea(it, c.value == "on") }
             }

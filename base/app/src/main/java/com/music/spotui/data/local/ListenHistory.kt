@@ -137,7 +137,7 @@ object ListenHistory {
     fun park(key: String?) = synchronized(lock) {
         val f = file ?: return@synchronized
         val owner = ownerKey() ?: key ?: "unclaimed-${System.currentTimeMillis()}"
-        runCatching { if (f.exists()) moveInto(f, parked(owner)!!) }
+        runCatching { if (f.exists()) parked(owner)?.let { moveInto(f, it) } }
         owner()?.delete()
         loaded = null
     }
@@ -148,7 +148,7 @@ object ListenHistory {
         val owner = ownerKey()
         if (owner == key) return@synchronized
         runCatching {
-            if (owner != null && f.exists()) moveInto(f, parked(owner)!!)
+            if (owner != null && f.exists()) parked(owner)?.let { moveInto(f, it) }
             parked(key)?.takeIf { it.exists() }?.let { moveInto(it, f) }
             owner()?.writeText(key)
         }

@@ -297,7 +297,7 @@ class ContextViewModel(
                         metaLine = Graph.app.resources.getQuantityString(R.plurals.liked_songs_header_metadata_text, songs.size, songs.size),
                     ))
                     _page.value = updated
-                    recent[key!!] = updated
+                    key?.let { recent[it] = updated }
                 }
                 // An unlike leaves the list on the tap, before Spotify has answered (reported: slow).
                 viewModelScope.launch(Dispatchers.IO) {
@@ -329,7 +329,7 @@ class ContextViewModel(
                     (_page.value as? Response.Success)?.data?.let { it.uri == r.data.uri && it.tracks.size > r.data.tracks.size } == true) return@collect
                 _page.value = r
                 if (r is Response.Success) {
-                    recent[key!!] = r
+                    key?.let { recent[it] = r }
                     val p = r.data
                     // Its first songs are made ready, so a tap plays at once (an audio-source extension).
                     if (warmedFor != p.uri) { warmedFor = p.uri; viewModelScope.launch(Dispatchers.Default) { runCatching { com.music.spotui.extensions.ExtensionAudio.warm(p.tracks) } } }
@@ -591,7 +591,10 @@ class ContextViewModel(
 fun ContextScreen(navController: NavController, type: String, id: String) {
     val vm: ContextViewModel = viewModel(key = "$type:$id")
     // During composition, so a cached page is there for the very first frame.
-    remember(type, id) { vm.load(type, id) }
+    remember(type, id) {
+        vm.load(type, id)
+        true
+    }
     val resp by vm.page.collectAsState()
     // The page fades in over its placeholder instead of replacing it in one frame.
     com.music.spotui.ui.components.LoadedFade(resp is Response.Loading, Modifier.fillMaxSize().background(PageBackground)) { loading ->
@@ -1670,7 +1673,7 @@ enum class TrackSort(val label: Int) {
 
     internal fun natural(songs: List<SongsModel>): List<SongsModel> {
         // One collator per thread: sorting runs at every sort change, not at every recomposition.
-        val text = textOrder.get()
+        val text = textOrder.get() ?: java.text.Collator.getInstance().apply { strength = java.text.Collator.PRIMARY }
         return when (this) {
             CUSTOM -> songs
             TITLE -> songs.sortedWith { a, b -> text.compare(a.title, b.title) }

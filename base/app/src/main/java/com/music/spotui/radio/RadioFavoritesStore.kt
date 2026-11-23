@@ -83,7 +83,7 @@ object RadioFavoritesStore {
         val station = RadioStation(
             stationUuid = o.getString("uuid"), name = o.optString("name"), streamUrl = o.optString("url"),
             homepage = o.optString("homepage"), favicon = o.optString("favicon"),
-            tags = (0 until (tags?.length() ?: 0)).map { tags!!.getString(it) },
+            tags = tags?.let { arr -> (0 until arr.length()).map { arr.getString(it) } }.orEmpty(),
             country = o.optString("country"), countryCode = o.optString("countrycode"),
             language = o.optString("language"), codec = o.optString("codec"),
             bitrateKbps = o.optInt("bitrate"), votes = o.optInt("votes"), clickCount = o.optInt("clicks"),

@@ -24,6 +24,7 @@ fun RuntimeShader(@Language("AGSL") shaderString: String): RuntimeShader {
     return AndroidRuntimeShader(shader)
 }
 
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 fun RuntimeShader.asAndroidRuntimeShader(): android.graphics.RuntimeShader {
     return (this as AndroidRuntimeShader).shader
 }
