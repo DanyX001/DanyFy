@@ -58,7 +58,7 @@ jobs:
           zip -qry DanyFy-iOS-unsigned.ipa Payload
           unzip -l DanyFy-iOS-unsigned.ipa | grep -E "Payload/DanyFy.app/DanyFy$|compose-resources" | head -20
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: DanyFy-iOS-unsigned
           path: base/iosApp/DanyFy-iOS-unsigned.ipa
