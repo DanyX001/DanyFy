@@ -1,0 +1,17 @@
+[package]
+name = "orpheon_rust"
+version = "1.0.0"
+edition = "2021"
+description = "Orpheon Native Rust Audio & SIMD DSP Engine (10-band SVF Equalizer, Mid/Side Spatial Widener, MP4 Widevine PSSH Parser, Real-Time Audio Thread Booster)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "orpheon_rust"
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

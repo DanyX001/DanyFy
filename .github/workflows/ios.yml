@@ -1,0 +1,76 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: base/iosApp
+        run: |
+          chmod +x ../gradlew
+          xcodegen generate
+
+      - name: Build unsigned iOS app
+        working-directory: base/iosApp
+        run: |
+          xcodebuild \
+            -project DanyFy.xcodeproj \
+            -scheme DanyFy \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        working-directory: base/iosApp
+        run: |
+          rm -rf Payload DanyFy-iOS-unsigned.ipa
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/DanyFy.app Payload/
+          zip -qry DanyFy-iOS-unsigned.ipa Payload
+          unzip -l DanyFy-iOS-unsigned.ipa | grep -E "Payload/DanyFy.app/DanyFy$|compose-resources" | head -20
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DanyFy-iOS-unsigned
+          path: base/iosApp/DanyFy-iOS-unsigned.ipa
+          retention-days: 30
+
+      - name: Publish iOS pre-release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ios-latest
+          name: DanyFy iOS Preview (latest)
+          prerelease: true
+          make_latest: false
+          files: base/iosApp/DanyFy-iOS-unsigned.ipa

@@ -1,0 +1,154 @@
+{
+  "id": "io.danyfy.beathaptics",
+  "name": "Beat Haptics",
+  "version": "1.1.0",
+  "versionCode": 4,
+  "apiVersion": 1,
+  "author": "DanyFy Audio Lab",
+  "description": "Feel every beat drop and vocal hook in exact sync with the music: multi-band Rust bass + center-vocal haptic engine.",
+  "icon": "icon.png",
+  "tags": ["haptics", "beats", "bass", "vocals", "vibration"],
+  "changelog": "v1.1.0: Rhythm-locked Bass + Vocals detection, AudioTrack hardware buffer latency sync, real-time tempo tracking, and strict anti-spam gating.",
+  "welcome": {
+    "message": "Beat Haptics v1.1.0 is active! Vibrations are now latency-synced to the speaker and separate bass kicks from center vocals.",
+    "steps": [
+      "Bass kicks deliver firm low-end thumps while exposed center vocals pulse lightly so you can tell bass from singing.",
+      "Open Settings → Extensions → Beat Haptics to pick Bass + Vocals, Bass Only, or Vocals Only, and toggle Strict Rhythm Lock."
+    ]
+  },
+  "actions": [
+    {
+      "name": "playback.events",
+      "why": "Syncs beat and vocal haptics with the active track and play/pause state"
+    },
+    {
+      "name": "settings.page",
+      "why": "Customize detection mode, intensity, rhythm lock, motor, and channel"
+    },
+    {
+      "name": "notify",
+      "why": "Shows confirmation when triggering a test haptic pattern"
+    }
+  ],
+  "settings": [
+    {
+      "key": "enabled",
+      "type": "toggle",
+      "label": "Enable Beat Haptics",
+      "description": "Vibrate in sync with the rhythm and vocals of playing music",
+      "default": true
+    },
+    {
+      "key": "mode",
+      "type": "choice",
+      "label": "Beat & Vocal Detection Mode",
+      "description": "Choose whether pulses track bass kicks, center vocals, or both together",
+      "default": "rhythm_hybrid",
+      "options": ["rhythm_hybrid", "bass_kick", "vocals", "full_beat", "sub_thump", "pulse_bpm"]
+    },
+    {
+      "key": "rhythm_lock",
+      "type": "toggle",
+      "label": "Strict Rhythm Lock (Anti-Spam)",
+      "description": "Locks kicks to the tracked song tempo, filters shaky trembling, and blocks overlapping vibrations",
+      "default": true
+    },
+    {
+      "key": "intensity",
+      "type": "choice",
+      "label": "Haptic Intensity",
+      "description": "Strength and pulse width of each bass or vocal vibration",
+      "default": "medium",
+      "options": ["light", "medium", "strong", "max"]
+    },
+    {
+      "key": "sensitivity",
+      "type": "choice",
+      "label": "Onset Sensitivity",
+      "description": "How easily transients break through the adaptive threshold",
+      "default": "normal",
+      "options": ["low", "normal", "high"]
+    },
+    {
+      "key": "motor",
+      "type": "choice",
+      "label": "Vibration Motor Tuning",
+      "description": "Tune pulse width for your phone's vibration motor (use Budget / ERM Boost if vibrations feel weak)",
+      "default": "auto",
+      "options": ["auto", "erm_strong", "crisp"]
+    },
+    {
+      "key": "channel",
+      "type": "choice",
+      "label": "Android Vibration Channel",
+      "description": "Switch channel if OEM battery or haptics settings mute vibration",
+      "default": "alarm",
+      "options": ["alarm", "touch", "media"]
+    },
+    {
+      "key": "test_pattern",
+      "type": "button",
+      "label": "Test Bass + Vocal Pattern",
+      "description": "Play a 4-beat Bass Kick and Vocal Accent preview using your current settings"
+    }
+  ],
+  "translations": {
+    "en": {
+      "settings": {
+        "mode": {
+          "label": "Beat & Vocal Detection Mode",
+          "description": "Choose whether pulses track bass kicks, center vocals, or both together",
+          "options": [
+            "Bass + Vocals (Rhythm Hybrid)",
+            "Bass & Kick Drum Only (30–145 Hz)",
+            "Vocals Only (Center Mix 320–2600 Hz)",
+            "Full Rhythm & Snare (30–360 Hz)",
+            "Deep 808 Sub-Bass Only (30–85 Hz)",
+            "Steady Tempo Metronome (BPM Grid)"
+          ]
+        },
+        "rhythm_lock": {
+          "label": "Strict Rhythm Lock (Anti-Spam)",
+          "description": "Locks kicks to the tracked song tempo, filters shaky trembling, and blocks overlapping vibrations"
+        },
+        "intensity": {
+          "label": "Haptic Intensity",
+          "description": "Strength and pulse width of each bass or vocal vibration",
+          "options": [
+            "Light (Subtle Tick)",
+            "Medium (Balanced Thump)",
+            "Strong (Heavy Bass Impact)",
+            "Max (Double-Transient Kick Overdrive)"
+          ]
+        },
+        "sensitivity": {
+          "label": "Onset Sensitivity",
+          "description": "How easily transients break through the adaptive threshold",
+          "options": [
+            "Low (Heavy Drops & Main Hooks Only)",
+            "Normal (Musical Beat & Vocal Accents)",
+            "High (Responsive Syncopation)"
+          ]
+        },
+        "motor": {
+          "label": "Vibration Motor Tuning",
+          "description": "Tune pulse width for your phone's vibration motor (use Budget / ERM Boost if vibrations feel weak)",
+          "options": [
+            "Auto-Detect (Recommended)",
+            "Budget / ERM Boost (Strongest Spin-Up)",
+            "Crisp LRA (Short & Snappy)"
+          ]
+        },
+        "channel": {
+          "label": "Android Vibration Channel",
+          "description": "Switch channel if OEM battery or haptics settings mute vibration",
+          "options": [
+            "Alarm Channel (Most Reliable)",
+            "System Touch Haptics",
+            "Media Vibration (Android 13+)"
+          ]
+        }
+      }
+    }
+  }
+}
