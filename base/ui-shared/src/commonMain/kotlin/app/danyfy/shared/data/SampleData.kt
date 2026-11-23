@@ -2,6 +2,7 @@ package app.danyfy.shared.data
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -225,54 +226,151 @@ object SampleCatalog {
 }
 
 /**
- * Interactive preview playback state (no audio engine in milestone 1; tapping songs / play / next / prev
- * updates the visible MiniPlayer and PlayerScreen cleanly).
+ * Interactive playback state (connected to PlayerController when active, with clean fallback to
+ * SampleCatalog for offline preview / screenshots).
  */
 object PreviewPlayerState {
+    var activeController: PlayerController? = null
+    var activeLibraryStore: LibraryStore? = null
+
     var currentIndex by mutableIntStateOf(0)
-    var isPlaying by mutableStateOf(false)
+    private var internalIsPlaying by mutableStateOf(false)
+    private var internalProgress by mutableFloatStateOf(0.32f)
     var shuffle by mutableStateOf(false)
     var repeatMode by mutableIntStateOf(0) // 0=off, 1=all, 2=one
     var likedIds by mutableStateOf(setOf("t1", "t3", "t5", "t9"))
-    var progressFraction by mutableStateOf(0.32f)
+
+    var isPlaying: Boolean
+        get() = activeController?.isPlaying ?: internalIsPlaying
+        set(value) {
+            internalIsPlaying = value
+            val ctrl = activeController
+            if (ctrl != null && ctrl.isPlaying != value) {
+                ctrl.togglePlayPause()
+            }
+        }
+
+    var progressFraction: Float
+        get() = activeController?.progress ?: internalProgress
+        set(value) {
+            internalProgress = value
+            activeController?.seekTo(value)
+        }
 
     val currentSong: SampleSong
-        get() = SampleCatalog.songs[currentIndex.coerceIn(SampleCatalog.songs.indices)]
+        get() {
+            val track = activeController?.currentTrack
+            if (track != null) {
+                return SampleSong(
+                    id = track.id,
+                    title = track.title,
+                    singer = track.artist,
+                    album = track.album,
+                    durationMs = if ((activeController?.durationMs ?: 0L) > 0L) activeController!!.durationMs else track.durationSeconds * 1000L,
+                    art = fallbackArtFor(track.id, track.title),
+                    explicit = track.explicit,
+                )
+            }
+            return SampleCatalog.songs[currentIndex.coerceIn(SampleCatalog.songs.indices)]
+        }
 
     val prevSong: SampleSong
         get() {
+            val ctrl = activeController
+            if (ctrl != null && ctrl.queue.isNotEmpty()) {
+                val idx = (ctrl.queueIndex - 1 + ctrl.queue.size) % ctrl.queue.size
+                val t = ctrl.queue[idx]
+                return SampleSong(t.id, t.title, t.artist, t.album, t.durationSeconds * 1000L, fallbackArtFor(t.id, t.title), t.explicit)
+            }
             val size = SampleCatalog.songs.size
             return SampleCatalog.songs[(currentIndex - 1 + size) % size]
         }
 
     val nextSong: SampleSong
-        get() = SampleCatalog.songs[(currentIndex + 1) % SampleCatalog.songs.size]
+        get() {
+            val ctrl = activeController
+            if (ctrl != null && ctrl.queue.isNotEmpty()) {
+                val idx = (ctrl.queueIndex + 1) % ctrl.queue.size
+                val t = ctrl.queue[idx]
+                return SampleSong(t.id, t.title, t.artist, t.album, t.durationSeconds * 1000L, fallbackArtFor(t.id, t.title), t.explicit)
+            }
+            return SampleCatalog.songs[(currentIndex + 1) % SampleCatalog.songs.size]
+        }
 
     fun selectSong(song: SampleSong) {
-        val idx = SampleCatalog.songs.indexOfFirst { it.id == song.id }
-        if (idx >= 0) currentIndex = idx
-        progressFraction = 0.08f
-        isPlaying = true
+        val ctrl = activeController
+        if (ctrl != null) {
+            ctrl.playTrack(
+                TrackItem(
+                    id = song.id,
+                    title = song.title,
+                    artist = song.singer,
+                    album = song.album,
+                    durationSeconds = song.durationMs / 1000L,
+                    artworkUrl = null,
+                    explicit = song.explicit,
+                )
+            )
+        } else {
+            val idx = SampleCatalog.songs.indexOfFirst { it.id == song.id }
+            if (idx >= 0) currentIndex = idx
+            internalProgress = 0.08f
+            internalIsPlaying = true
+        }
     }
 
     fun next() {
-        currentIndex = (currentIndex + 1) % SampleCatalog.songs.size
-        progressFraction = 0f
+        val ctrl = activeController
+        if (ctrl != null) {
+            ctrl.next()
+        } else {
+            currentIndex = (currentIndex + 1) % SampleCatalog.songs.size
+            internalProgress = 0f
+        }
     }
 
     fun previous() {
-        val size = SampleCatalog.songs.size
-        currentIndex = (currentIndex - 1 + size) % size
-        progressFraction = 0f
+        val ctrl = activeController
+        if (ctrl != null) {
+            ctrl.previous()
+        } else {
+            val size = SampleCatalog.songs.size
+            currentIndex = (currentIndex - 1 + size) % size
+            internalProgress = 0f
+        }
     }
 
     fun togglePlay() {
-        isPlaying = !isPlaying
+        val ctrl = activeController
+        if (ctrl != null) {
+            ctrl.togglePlayPause()
+        } else {
+            internalIsPlaying = !internalIsPlaying
+        }
     }
 
-    fun isLiked(id: String): Boolean = id in likedIds
+    fun isLiked(id: String): Boolean {
+        val lib = activeLibraryStore
+        return if (lib != null) lib.isLiked(id) else id in likedIds
+    }
 
     fun toggleLike(id: String) {
-        likedIds = if (id in likedIds) likedIds - id else likedIds + id
+        val lib = activeLibraryStore
+        if (lib != null) {
+            val curr = currentSong
+            lib.toggleLike(
+                TrackItem(
+                    id = curr.id,
+                    title = curr.title,
+                    artist = curr.singer,
+                    album = curr.album,
+                    durationSeconds = curr.durationMs / 1000L,
+                    artworkUrl = null,
+                    explicit = curr.explicit,
+                )
+            )
+        } else {
+            likedIds = if (id in likedIds) likedIds - id else likedIds + id
+        }
     }
 }

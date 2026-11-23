@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.compose.multiplatform)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 kotlin {
@@ -35,10 +36,17 @@ kotlin {
             implementation("org.jetbrains.compose.material:material-icons-extended:1.7.3")
             implementation("org.jetbrains.androidx.navigation:navigation-compose:2.9.2")
             implementation(libs.coroutines.core)
+            implementation(libs.serialization.json)
         }
         val desktopMain by getting {
             dependencies {
                 implementation(compose.desktop.currentOs)
+            }
+        }
+        val desktopTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation(libs.coroutines.test)
             }
         }
     }

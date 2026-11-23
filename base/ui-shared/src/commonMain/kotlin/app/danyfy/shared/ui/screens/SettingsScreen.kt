@@ -72,8 +72,15 @@ import app.danyfy.shared.resources.data_saver_summary
 import app.danyfy.shared.resources.data_saver_title
 import app.danyfy.shared.resources.equalizer_settings_detail
 import app.danyfy.shared.resources.equalizer_title
+import app.danyfy.shared.data.Look
+import app.danyfy.shared.platform.PlatformRegistry
 import app.danyfy.shared.resources.look_classic
 import app.danyfy.shared.resources.look_classic_detail
+import app.danyfy.shared.resources.look_immersive
+import app.danyfy.shared.resources.look_immersive_detail
+import app.danyfy.shared.ui.LocalLibraryStore
+import app.danyfy.shared.ui.LocalLook
+import app.danyfy.shared.ui.LocalYtmApi
 import app.danyfy.shared.resources.lyrics_extra_summary
 import app.danyfy.shared.resources.lyrics_extra_title
 import app.danyfy.shared.resources.lyrics_word_sync_off
@@ -370,21 +377,52 @@ fun SettingsScreen(navController: NavController, initialTab: Int = TAB_PLAYBACK)
                 }
                 TAB_ACCOUNT -> {
                     SettingsSection(Res.string.accounts_title)
+                    val ytmApi = LocalYtmApi.current
+                    var signedInState by remember { mutableStateOf(ytmApi.isSignedIn) }
                     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
-                        Text("Music account", color = AppText, fontSize = 16.sp)
-                        Text("Preview mode (sign-in will be enabled in the next milestone)", color = AppMuted, fontSize = 12.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
-                            for (p in listOf("Spotify", "YouTube Music", "None")) {
-                                val selected = provider == p
+                        Text("YouTube Music", color = AppText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (signedInState) "Signed in with Google / YouTube Music" else "Streaming anonymously. Sign in to access your private library, Liked Songs & playlists.",
+                            color = AppMuted,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (!signedInState) {
                                 Text(
-                                    p,
-                                    color = if (selected) Color.Black else AppText,
+                                    "Sign In",
+                                    color = Color.Black,
                                     fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(50))
-                                        .background(if (selected) AppAccent else tone(0xFF2A2A2A))
-                                        .clickable { provider = p }
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        .background(AppAccent)
+                                        .clickable {
+                                            PlatformRegistry.auth.openSignIn(
+                                                onSuccess = { cookies ->
+                                                    ytmApi.cookies = cookies
+                                                    signedInState = true
+                                                },
+                                                onCancel = {},
+                                            )
+                                        }
+                                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                                )
+                            } else {
+                                Text(
+                                    "Sign Out",
+                                    color = AppText,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(tone(0xFF333333))
+                                        .clickable {
+                                            ytmApi.cookies = null
+                                            PlatformRegistry.auth.clearCookies()
+                                            signedInState = false
+                                        }
+                                        .padding(horizontal = 20.dp, vertical = 10.dp),
                                 )
                             }
                         }
@@ -494,16 +532,42 @@ private fun AccentRow() {
 
 @Composable
 private fun LookRow() {
+    val store = LocalLibraryStore.current
+    val currentLook = LocalLook.current
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
         Text(stringResource(Res.string.settings_look_title), color = AppText, fontSize = 16.sp)
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { store.setLookPreference(Look.CLASSIC) }
+                .padding(vertical = 8.dp),
         ) {
-            RadioButton(selected = true, onClick = null)
+            RadioButton(
+                selected = currentLook == Look.CLASSIC,
+                onClick = { store.setLookPreference(Look.CLASSIC) },
+                colors = RadioButtonDefaults.colors(selectedColor = AppAccent),
+            )
             Column(Modifier.padding(start = 12.dp)) {
                 Text(stringResource(Res.string.look_classic), color = AppText, fontSize = 15.sp)
                 Text(stringResource(Res.string.look_classic_detail), color = AppMuted, fontSize = 12.sp)
+            }
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { store.setLookPreference(Look.IMMERSIVE) }
+                .padding(vertical = 8.dp),
+        ) {
+            RadioButton(
+                selected = currentLook == Look.IMMERSIVE,
+                onClick = { store.setLookPreference(Look.IMMERSIVE) },
+                colors = RadioButtonDefaults.colors(selectedColor = AppAccent),
+            )
+            Column(Modifier.padding(start = 12.dp)) {
+                Text(stringResource(Res.string.look_immersive), color = AppText, fontSize = 15.sp)
+                Text(stringResource(Res.string.look_immersive_detail), color = AppMuted, fontSize = 12.sp)
             }
         }
     }

@@ -14,8 +14,8 @@ targets:
       base:
         PRODUCT_NAME: DanyFy
         PRODUCT_BUNDLE_IDENTIFIER: app.danyfy.ios
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "0.2.0"
+        CURRENT_PROJECT_VERSION: "2"
         INFOPLIST_FILE: iosApp/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_VERSION: "5.0"

@@ -113,14 +113,15 @@ fun MyNavHost(
         ) { entry ->
             val genre = entry.arguments?.read { getStringOrNull("genre") }.orEmpty()
             val title = entry.arguments?.read { getStringOrNull("title") }.orEmpty().ifBlank { genre }
-            CollectionDetailScreen(navHostController, title, "Browse category")
+            CollectionDetailScreen(navHostController, title, "Browse category", browseId = genre)
         }
         page(
             "${Routes.Playlist.route}/{pId}?name={name}",
             arguments = listOf(navArgument("name") { defaultValue = "" }),
         ) { entry ->
+            val pId = entry.arguments?.read { getStringOrNull("pId") }.orEmpty()
             val name = entry.arguments?.read { getStringOrNull("name") }.orEmpty().ifBlank { "Playlist" }
-            CollectionDetailScreen(navHostController, name, "Playlist")
+            CollectionDetailScreen(navHostController, name, "Playlist", browseId = pId)
         }
         page(
             "${Routes.Album.route}/{uString}?artist={artist}&id={albumId}",
@@ -129,16 +130,18 @@ fun MyNavHost(
                 navArgument("albumId") { defaultValue = "" },
             ),
         ) { entry ->
+            val albumId = entry.arguments?.read { getStringOrNull("albumId") }.orEmpty()
             val name = entry.arguments?.read { getStringOrNull("uString") }.orEmpty().ifBlank { "Album" }
             val artist = entry.arguments?.read { getStringOrNull("artist") }.orEmpty()
-            CollectionDetailScreen(navHostController, name, artist)
+            CollectionDetailScreen(navHostController, name, artist, browseId = albumId)
         }
         page(
             "${Routes.Artist.route}/{aString}?id={artistId}",
             arguments = listOf(navArgument("artistId") { defaultValue = "" }),
         ) { entry ->
+            val artistId = entry.arguments?.read { getStringOrNull("artistId") }.orEmpty()
             val name = entry.arguments?.read { getStringOrNull("aString") }.orEmpty().ifBlank { "Artist" }
-            CollectionDetailScreen(navHostController, name, "Artist")
+            CollectionDetailScreen(navHostController, name, "Artist", browseId = artistId)
         }
     }
 }

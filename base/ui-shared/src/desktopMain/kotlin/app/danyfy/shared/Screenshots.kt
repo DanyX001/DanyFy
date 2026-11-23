@@ -22,6 +22,7 @@ private fun renderToFile(
             startDestination = startRoute,
             playerOpenInitially = playerOpen,
             showMiniPlayer = miniPlayer,
+            offlinePreview = true,
         )
     }
     try {
