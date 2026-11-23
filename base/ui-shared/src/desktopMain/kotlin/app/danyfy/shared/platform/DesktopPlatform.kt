@@ -66,7 +66,7 @@ class DesktopHttp : PlatformHttp {
         url: String,
         headers: Map<String, String>,
         jsonBody: String,
-        callback: (statusCode: Int, body: String?, error: String?) -> Unit,
+        callback: PlatformHttpCallback,
     ) {
         thread(isDaemon = true) {
             try {
@@ -82,9 +82,9 @@ class DesktopHttp : PlatformHttp {
                 val code = conn.responseCode
                 val stream = if (code in 200..299) conn.inputStream else conn.errorStream
                 val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-                callback(code, body, null)
+                callback.onResponse(code, body, null)
             } catch (t: Throwable) {
-                callback(0, null, t.message ?: t.toString())
+                callback.onResponse(0, null, t.message ?: t.toString())
             }
         }
     }
@@ -93,7 +93,7 @@ class DesktopHttp : PlatformHttp {
     override fun getBytes(
         url: String,
         headers: Map<String, String>,
-        callback: (statusCode: Int, base64Data: String?, error: String?) -> Unit,
+        callback: PlatformHttpCallback,
     ) {
         thread(isDaemon = true) {
             try {
@@ -107,9 +107,9 @@ class DesktopHttp : PlatformHttp {
                     val bytes = conn.inputStream.use { it.readBytes() }
                     kotlin.io.encoding.Base64.encode(bytes)
                 } else null
-                callback(code, b64, null)
+                callback.onResponse(code, b64, null)
             } catch (t: Throwable) {
-                callback(0, null, t.message ?: t.toString())
+                callback.onResponse(0, null, t.message ?: t.toString())
             }
         }
     }

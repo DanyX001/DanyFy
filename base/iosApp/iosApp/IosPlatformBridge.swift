@@ -9,10 +9,10 @@ public class IosHttpClient: NSObject, PlatformHttp {
         url: String,
         headers: [String : String],
         jsonBody: String,
-        callback: @escaping (Int32, String?, String?) -> Void
+        callback: PlatformHttpCallback
     ) {
         guard let requestUrl = URL(string: url) else {
-            callback(0, nil, "Invalid URL: \(url)")
+            callback.onResponse(statusCode: 0, body: nil, error: "Invalid URL: \(url)")
             return
         }
 
@@ -27,14 +27,14 @@ public class IosHttpClient: NSObject, PlatformHttp {
 
         let task = session.dataTask(with: request) { data, response, error in
             if let err = error {
-                callback(0, nil, err.localizedDescription)
+                callback.onResponse(statusCode: 0, body: nil, error: err.localizedDescription)
                 return
             }
 
             let httpResponse = response as? HTTPURLResponse
             let statusCode = Int32(httpResponse?.statusCode ?? 200)
             let bodyString = data != nil ? String(data: data!, encoding: .utf8) : nil
-            callback(statusCode, bodyString, nil)
+            callback.onResponse(statusCode: statusCode, body: bodyString, error: nil)
         }
         task.resume()
     }
@@ -42,10 +42,10 @@ public class IosHttpClient: NSObject, PlatformHttp {
     public func getBytes(
         url: String,
         headers: [String : String],
-        callback: @escaping (Int32, String?, String?) -> Void
+        callback: PlatformHttpCallback
     ) {
         guard let requestUrl = URL(string: url) else {
-            callback(0, nil, "Invalid URL: \(url)")
+            callback.onResponse(statusCode: 0, body: nil, error: "Invalid URL: \(url)")
             return
         }
 
@@ -59,14 +59,14 @@ public class IosHttpClient: NSObject, PlatformHttp {
 
         let task = session.dataTask(with: request) { data, response, error in
             if let err = error {
-                callback(0, nil, err.localizedDescription)
+                callback.onResponse(statusCode: 0, body: nil, error: err.localizedDescription)
                 return
             }
 
             let httpResponse = response as? HTTPURLResponse
             let statusCode = Int32(httpResponse?.statusCode ?? 200)
             let base64String = data?.base64EncodedString()
-            callback(statusCode, base64String, nil)
+            callback.onResponse(statusCode: statusCode, body: base64String, error: nil)
         }
         task.resume()
     }

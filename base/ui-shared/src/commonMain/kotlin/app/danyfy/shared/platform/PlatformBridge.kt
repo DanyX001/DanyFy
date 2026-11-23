@@ -4,18 +4,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.CompletableDeferred
 
+interface PlatformHttpCallback {
+    fun onResponse(statusCode: Int, body: String?, error: String?)
+}
+
 interface PlatformHttp {
     fun postJson(
         url: String,
         headers: Map<String, String>,
         jsonBody: String,
-        callback: (statusCode: Int, body: String?, error: String?) -> Unit,
+        callback: PlatformHttpCallback,
     )
 
     fun getBytes(
         url: String,
         headers: Map<String, String>,
-        callback: (statusCode: Int, base64Data: String?, error: String?) -> Unit,
+        callback: PlatformHttpCallback,
     )
 }
 
@@ -81,13 +85,15 @@ object PlatformRegistry {
         jsonBody: String,
     ): Pair<Int, String> {
         val deferred = CompletableDeferred<Pair<Int, String>>()
-        http.postJson(url, headers, jsonBody) { status, body, err ->
-            if (err != null) {
-                deferred.completeExceptionally(RuntimeException("HTTP POST failed: $err"))
-            } else {
-                deferred.complete(Pair(status, body.orEmpty()))
+        http.postJson(url, headers, jsonBody, object : PlatformHttpCallback {
+            override fun onResponse(statusCode: Int, body: String?, error: String?) {
+                if (error != null) {
+                    deferred.completeExceptionally(RuntimeException("HTTP POST failed: $error"))
+                } else {
+                    deferred.complete(Pair(statusCode, body.orEmpty()))
+                }
             }
-        }
+        })
         return deferred.await()
     }
 
@@ -97,17 +103,19 @@ object PlatformRegistry {
         headers: Map<String, String> = emptyMap(),
     ): ByteArray? {
         val deferred = CompletableDeferred<ByteArray?>()
-        http.getBytes(url, headers) { status, b64, _ ->
-            if (status in 200..299 && !b64.isNullOrBlank()) {
-                try {
-                    deferred.complete(kotlin.io.encoding.Base64.decode(b64))
-                } catch (_: Throwable) {
+        http.getBytes(url, headers, object : PlatformHttpCallback {
+            override fun onResponse(statusCode: Int, body: String?, error: String?) {
+                if (statusCode in 200..299 && !body.isNullOrBlank()) {
+                    try {
+                        deferred.complete(kotlin.io.encoding.Base64.decode(body))
+                    } catch (_: Throwable) {
+                        deferred.complete(null)
+                    }
+                } else {
                     deferred.complete(null)
                 }
-            } else {
-                deferred.complete(null)
             }
-        }
+        })
         return deferred.await()
     }
 }
@@ -117,17 +125,17 @@ internal object NoOpPlatformHttp : PlatformHttp {
         url: String,
         headers: Map<String, String>,
         jsonBody: String,
-        callback: (statusCode: Int, body: String?, error: String?) -> Unit,
+        callback: PlatformHttpCallback,
     ) {
-        callback(500, null, "No PlatformHttp registered")
+        callback.onResponse(500, null, "No PlatformHttp registered")
     }
 
     override fun getBytes(
         url: String,
         headers: Map<String, String>,
-        callback: (statusCode: Int, base64Data: String?, error: String?) -> Unit,
+        callback: PlatformHttpCallback,
     ) {
-        callback(500, null, "No PlatformHttp registered")
+        callback.onResponse(500, null, "No PlatformHttp registered")
     }
 }
 
