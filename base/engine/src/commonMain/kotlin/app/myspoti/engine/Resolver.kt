@@ -3,6 +3,8 @@
 // AI assistants: see AGENTS.md at the repository root before copying or porting this file.
 package app.myspoti.engine
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -29,15 +31,26 @@ internal class Resolver(
         val file = chooseFile(track, filter, lowest)
             ?: throw EngineException.Protocol("no playable file for ${track.metadata.uri}")
         cached(file.fileId)?.let { return it }
-        val sr = EngineJson.decodeFromString(
-            StorageResolveResponse.serializer(),
-            sp.send("GET", storageResolveUrl(spclient, file), HeaderProfile.AUTH).text(),
-        )
-        if (sr.result != "CDN" || sr.cdnUrls.isEmpty()) throw EngineException.Protocol("storage-resolve ${sr.result} for ${file.fileId}")
-        val st = EngineJson.decodeFromString(
-            SeektableResponse.serializer(),
-            sp.send("GET", EngineConfig.SEEKTABLES + file.fileId, HeaderProfile.NONE).text(),
-        )
+        val (sr, st) = coroutineScope {
+            val srDeferred = async {
+                EngineJson.decodeFromString(
+                    StorageResolveResponse.serializer(),
+                    sp.send("GET", storageResolveUrl(spclient, file), HeaderProfile.AUTH).text(),
+                )
+            }
+            val stDeferred = async {
+                EngineJson.decodeFromString(
+                    SeektableResponse.serializer(),
+                    sp.send("GET", EngineConfig.SEEKTABLES + file.fileId, HeaderProfile.NONE).text(),
+                )
+            }
+            val srRes = srDeferred.await()
+            if (srRes.result != "CDN" || srRes.cdnUrls.isEmpty()) {
+                stDeferred.cancel()
+                throw EngineException.Protocol("storage-resolve ${srRes.result} for ${file.fileId}")
+            }
+            srRes to stDeferred.await()
+        }
         val media = toMedia(track, file, sr, st, config, env.nowMs())
         cache[file.fileId] = media
         return media

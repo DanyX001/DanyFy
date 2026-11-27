@@ -137,6 +137,13 @@ internal class CdnItem(val media: PlayableMedia, private val http: Http, private
         enqueueLookahead(next2)
     }
 
+    /** Starts background fetches for the init chunk and first audio segments as soon as load begins. */
+    fun warmInitialChunks() {
+        if (cancelled || length == C.LENGTH_UNSET.toLong()) return
+        enqueueLookahead(0L)
+        triggerLookahead(0L)
+    }
+
     private fun enqueueLookahead(targetStart: Long) {
         if (cancelled || ready.containsKey(targetStart) || inFlight.containsKey(targetStart) || ready.size >= 4) return
         inFlight.computeIfAbsent(targetStart) {
@@ -242,7 +249,7 @@ internal class SegmentDataSource(private val items: (Uri) -> CdnItem?) : BaseDat
             it.takeReady(chunk.first)?.takeIf { b -> b.isNotEmpty() }?.let { bytes ->
                 buffer = bytes
                 bufferAt = 0
-                if (chunk.first > 0L) it.triggerLookahead(chunk.first)
+                it.triggerLookahead(chunk.first)
                 return
             }
             buffer = try {
@@ -254,7 +261,7 @@ internal class SegmentDataSource(private val items: (Uri) -> CdnItem?) : BaseDat
             }
             bufferAt = 0
             if (buffer.isEmpty()) throw IOException("empty CDN answer at $position")
-            if (chunk.first > 0L) it.triggerLookahead(chunk.first)
+            it.triggerLookahead(chunk.first)
             return
         }
         buffer = try {

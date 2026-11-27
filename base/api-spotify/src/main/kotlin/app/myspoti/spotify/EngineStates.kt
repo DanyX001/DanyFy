@@ -29,6 +29,8 @@ object EngineStates {
     fun of(n: NativeEngine.Now): PlayerState = PlayerState(
         item = item(n),
         contextUri = n.contextUri,
+        previous = n.previous?.let(::summaryItem),
+        next = n.next?.let(::summaryItem),
         isPaused = !n.playing && !n.buffering,
         isBuffering = n.buffering,
         positionMs = n.positionMs,
@@ -62,6 +64,13 @@ object EngineStates {
         imageUrl = n.imageUrl, durationMs = n.durationMs, provider = n.provider,
     )
 
+    private fun summaryItem(t: NativeEngine.TrackSummary) = NowPlaying(
+        kind = kindOf(t.uri), uri = t.uri, uid = null, name = t.name,
+        artists = t.authors.map { (uri, name) -> ArtistRef(uri, name) },
+        album = t.album.takeIf { it.isNotEmpty() }?.let { AlbumRef(t.albumUri.orEmpty(), it) },
+        imageUrl = t.imageUrl, durationMs = t.durationMs, provider = t.provider,
+    )
+
     /**
      * The state to show while the engine plays the account's songs: the engine's own playback ([n],
      * live, from its player) laid over what the page last said ([page], the account's as Spotify's
@@ -86,6 +95,8 @@ object EngineStates {
                 provider = n.provider ?: pageItem.provider,
             ),
             contextUri = n.contextUri ?: page.contextUri,
+            previous = page.previous ?: own.previous,
+            next = page.next ?: own.next,
             isPaused = own.isPaused,
             isBuffering = own.isBuffering,
             positionMs = own.positionMs,
@@ -98,7 +109,8 @@ object EngineStates {
             item = if (movedOn) own.item!!.copy(uid = page.next?.uid, explicit = page.next?.explicit ?: false, provider = n.provider ?: page.next?.provider) else own.item,
             contextUri = n.contextUri ?: page.contextUri.takeIf { movedOn },
             contextName = page.contextName.takeIf { movedOn || (n.contextUri != null && n.contextUri == page.contextUri) },
-            previous = pageItem.takeIf { movedOn },
+            previous = pageItem.takeIf { movedOn } ?: own.previous,
+            next = own.next,
             shuffle = page.shuffle,
             repeat = page.repeat,
             restrictions = page.restrictions,

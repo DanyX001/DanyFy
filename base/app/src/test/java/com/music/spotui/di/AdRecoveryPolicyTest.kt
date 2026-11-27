@@ -143,4 +143,18 @@ class AdRecoveryPolicyTest {
         )
         assertNull(stopped)
     }
+
+    @Test
+    fun neverRecoversOntoRecentlySkippedFromTrack() {
+        val target = AdRecoveryPolicy.pickRecoveryTarget(
+            hintCtx = "spotify:playlist:P1",
+            hintTrack = null,
+            appTarget = AdRecoveryTarget("spotify:playlist:P1", "spotify:track:t1", shuffle = true),
+            lastPlayed = AdRecoveryTarget("spotify:playlist:P1", "spotify:track:t1", shuffle = true),
+            hintCurrentTrack = "spotify:track:t1",
+            skippedFromTrack = "spotify:track:t1",
+        )!!
+        assertEquals("spotify:playlist:P1", target.contextUri)
+        assertNull(target.trackUri)
+    }
 }

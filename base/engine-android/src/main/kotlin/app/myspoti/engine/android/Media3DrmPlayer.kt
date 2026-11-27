@@ -382,6 +382,10 @@ class Media3DrmPlayer(
     ) {
         if (released || gen != loadGen.get()) return
         this.licence = licence
+        val targetUri = uriOf(media)
+        val earlyExisting = items[targetUri]
+        val earlyItem = if (earlyExisting != null && !earlyExisting.isCancelled) earlyExisting else CdnItem(media, http, log).also { items[targetUri] = it }
+        earlyItem.warmInitialChunks()
         if (privacyMode && certificate == null) {
             val job = scope.async { ensureCertificate(licence) }
             activeCertJob.getAndSet(job)?.cancel()

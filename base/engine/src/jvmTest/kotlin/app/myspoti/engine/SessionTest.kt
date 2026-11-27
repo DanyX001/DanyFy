@@ -979,6 +979,85 @@ class SessionTest {
         assertEquals("context", snap.nextProvider)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun manual_skip_into_null_transition_ad_preserves_previous_track_next_hint_and_now_exposes_next() = runTest {
+        val rig = Rig(backgroundScope)
+        val existingTracks = rig.machine["tracks"]!!.jsonArray
+        val adTrackIdx = existingTracks.size
+        val sampleTrack = existingTracks[2].jsonObject
+        val adTrack = kotlinx.serialization.json.JsonObject(
+            sampleTrack + mapOf(
+                "content_type" to kotlinx.serialization.json.JsonPrimitive("AD"),
+                "metadata" to kotlinx.serialization.json.JsonObject(
+                    sampleTrack["metadata"]!!.jsonObject - "context_uri" + mapOf(
+                        "uri" to kotlinx.serialization.json.JsonPrimitive("spotify:ad:manualSkipAd"),
+                    ),
+                ),
+            ),
+        )
+        val targetTrackUri = rig.trackUriOf(4)
+        val track2Uri = rig.trackUriOf(2)
+        val playlistCtx = "spotify:playlist:ManualSkipPlaylist"
+        val refNull = kotlinx.serialization.json.JsonNull
+        val adOnlyMachine = kotlinx.serialization.json.JsonObject(
+            rig.machine + mapOf(
+                "state_machine_id" to kotlinx.serialization.json.JsonPrimitive("ChTadOnly"),
+                "tracks" to kotlinx.serialization.json.JsonArray(existingTracks + adTrack),
+                "states" to kotlinx.serialization.json.JsonArray(
+                    rig.states.mapIndexed { idx, el ->
+                        if (idx == 3) {
+                            kotlinx.serialization.json.JsonObject(
+                                el.jsonObject + mapOf(
+                                    "track" to kotlinx.serialization.json.JsonPrimitive(adTrackIdx),
+                                    "transitions" to kotlinx.serialization.json.buildJsonObject {
+                                        put("advance", refNull)
+                                        put("skip_next", refNull)
+                                        put("show_next", refNull)
+                                    },
+                                ),
+                            )
+                        } else el
+                    },
+                ),
+            ),
+        )
+
+        rig.start()
+        rig.engine.play(playlistCtx, track2Uri)
+        rig.engine.handleDealerFrame(rig.replaceState(2, paused = false, seekTo = 0))
+        runCurrent()
+
+        val liveNow = rig.engine.now.value
+        assertEquals(track2Uri, liveNow?.uri)
+        assertEquals(rig.trackUriOf(rig.advanceOf(2)), liveNow?.next?.uri)
+
+        // User presses Next and the server pushes an ad state whose own transitions are all null.
+        rig.http.failNext("/connect-state/v1/player/command/", 403)
+        val adPushPayload = kotlinx.serialization.json.JsonObject(
+            rig.payload + mapOf(
+                "state_machine" to adOnlyMachine,
+                "state_ref" to kotlinx.serialization.json.buildJsonObject {
+                    put("state_index", kotlinx.serialization.json.JsonPrimitive(3))
+                    put("paused", kotlinx.serialization.json.JsonPrimitive(false))
+                    put("active_alias", kotlinx.serialization.json.JsonNull)
+                },
+                "seek_to" to kotlinx.serialization.json.JsonPrimitive(0),
+            ),
+        )
+        val adPushFrame = kotlinx.serialization.json.JsonObject(
+            Fixtures.json("dealer-replace-state.json") + ("payloads" to kotlinx.serialization.json.JsonArray(listOf(adPushPayload))),
+        ).toString()
+        rig.engine.handleDealerFrame(adPushFrame)
+        runCurrent()
+
+        val snap = rig.engine.adRecoverySnapshot()
+        assertEquals("spotify:album:iSCtlsXvLRstWJrMBibvgl", snap.contextUri)
+        assertEquals(track2Uri, snap.trackUri)
+        assertEquals(rig.trackUriOf(rig.advanceOf(2)), snap.nextTrackUri)
+        assertTrue(snap.nextTrackUri != snap.trackUri)
+    }
+
     /** A rig playing state 2 from 0, 10 s in (started_playing sent, next track preloaded). */
     private suspend fun playing(scope: kotlinx.coroutines.test.TestScope): Rig {
         val rig = Rig(scope.backgroundScope)

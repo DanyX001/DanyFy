@@ -283,6 +283,8 @@ object SongPlayer {
         AccountSync.attach()
         NativeAudio.attach()
         NativeAudio.adRecoveryTarget = { hint -> nextAdRecoveryTarget(hint) }
+        NativeAudio.lastSkippedFromTrack = { recentSkippedFromUri() }
+        NativeAudio.onContextEnded = { last -> onNativeContextEnded(last) }
         MyspotiRuntime.spotify.player.onLocalAdBreak = { bypassLocalAdBreak() }
         MyspotiRuntime.spotify.player.remoteTargetId = { _activeDevice.value?.id ?: NativeAudio.remoteDeviceId ?: chosenRemote }
         scope.launch {
@@ -693,10 +695,58 @@ object SongPlayer {
     private fun contextUris(ctx: String): List<String>? =
         contextRows[ctx]?.mapNotNull(::playKeyToUri)?.takeIf { it.isNotEmpty() }
 
+    @Volatile private var lastSkippedFromUri: String? = null
+    @Volatile private var lastSkipTargetUri: String? = null
+    @Volatile private var lastSkippedAtMs: Long = 0L
+    private const val RECENT_SKIP_WINDOW_MS = 20_000L
+
+    private fun recentSkippedFromUri(): String? =
+        lastSkippedFromUri?.takeIf { SystemClock.elapsedRealtime() - lastSkippedAtMs < RECENT_SKIP_WINDOW_MS }
+
+    private fun recentSkipTargetUri(): String? =
+        lastSkipTargetUri?.takeIf { SystemClock.elapsedRealtime() - lastSkippedAtMs < RECENT_SKIP_WINDOW_MS }
+
+    private fun onNativeContextEnded(last: AdRecoveryTarget?) {
+        if (LocalPlayer.active.value || _activeDevice.value != null || hasConnectedRemotePlayer()) return
+        val seedUri = last?.trackUri?.takeIf { it.startsWith(SPOTIFY_TRACK_PREFIX) }
+            ?: last?.contextUri?.takeIf { it.startsWith(SPOTIFY_TRACK_PREFIX) }
+            ?: _nowPlaying.value.uri.takeIf { it.startsWith(SPOTIFY_TRACK_PREFIX) }
+            ?: lastConfirmedTrackUri.takeIf { it.startsWith(SPOTIFY_TRACK_PREFIX) }
+            ?: return
+        val standalone = (last?.contextUri == null || last.contextUri.startsWith(SPOTIFY_TRACK_PREFIX)) &&
+            (_nowPlaying.value.contextUri.isBlank() || _nowPlaying.value.contextUri.startsWith(SPOTIFY_TRACK_PREFIX))
+        if (!standalone && !com.music.spotui.data.preferences.AutoplayPref.on) return
+        val seedId = trackIdOf(seedUri).takeIf { it.isNotBlank() } ?: return
+        val startedAt = userActedAt
+        scope.launch {
+            val radioId = runCatching { Graph.api.radioPlaylistId(SPOTIFY_TRACK_PREFIX + seedId) }.getOrNull()
+            if (userActedAt > startedAt || LocalPlayer.active.value || playing) return@launch
+            if (!radioId.isNullOrBlank()) {
+                val radioCtx = "spotify:playlist:$radioId"
+                app.myspoti.host.android.Logbook.log("native: standalone track $seedUri ended, continuing with song radio $radioCtx")
+                transport(pullBack = false, waitReady = !nativeControlsAccount()) {
+                    api.player.play(radioCtx)
+                }
+                return@launch
+            }
+            val recs = runCatching { Graph.api.getRecommendations(listOf(seedId)) }.getOrDefault(emptyList())
+            val firstRec = recs.firstOrNull { it.spotifyTrackId.isNotBlank() && it.spotifyTrackId != seedId } ?: return@launch
+            if (userActedAt > startedAt || LocalPlayer.active.value || playing) return@launch
+            app.myspoti.host.android.Logbook.log("native: standalone track $seedUri ended, continuing with recommendation ${firstRec.title}")
+            main.post {
+                if (userActedAt <= startedAt && !LocalPlayer.active.value && !playing) {
+                    playSong(firstRec.url, songs = recs, alone = true)
+                }
+            }
+        }
+    }
+
     private fun nextAdRecoveryTarget(hint: app.myspoti.engine.NativeEngine.AdRecoveryHint? = null): AdRecoveryTarget? {
         val np = _nowPlaying.value
         val q = _queue.value
         fun valid(uri: String?) = uri?.takeIf { it.isNotBlank() && !it.startsWith("spotify:ad:") }
+        val skippedFrom = recentSkippedFromUri()
+        val skippedTarget = recentSkipTargetUri()?.let(::valid)?.takeIf { it != skippedFrom }
 
         val curUri = valid(hint?.trackUri)
             ?: valid(np.uri)
@@ -726,19 +776,32 @@ object SongPlayer {
 
         val due = app.myspoti.spotify.bridge.AdSchedule.due.value
         val dueMatchesCur = due != null && (due.songUri == null || curUri == null || due.songUri == curUri)
-        val dueNext = due?.takeIf { dueMatchesCur }?.nextUri?.let(::valid)
+        val dueNext = due?.takeIf { dueMatchesCur }?.nextUri?.let(::valid)?.takeIf { it != skippedFrom }
         val dueProvider = due?.takeIf { dueMatchesCur }?.nextProvider
 
+        val allQueued = (q.queued + q.nextUp).filter { valid(it.uri) != null }
         val queueMatchesCur = curUri == null || (q.current != null && songUri(q.current) == curUri)
-        val upcoming = if (queueMatchesCur) (q.queued + q.nextUp).filter { valid(it.uri) != null } else emptyList()
+        val upcoming = when {
+            queueMatchesCur -> allQueued
+            curUri != null -> {
+                val at = allQueued.indexOfFirst { it.uri == curUri }
+                if (at >= 0) allQueued.drop(at + 1) else emptyList()
+            }
+            else -> emptyList()
+        }
         val firstQueued = upcoming.firstOrNull { qItem ->
             val u = qItem.uri
-            playlistUris == null || !isPlaylist || qItem.provider == "queue" || qItem.provider == "autoplay" || u in playlistUris
+            u != skippedFrom &&
+                (playlistUris == null || !isPlaylist || qItem.provider == "queue" || qItem.provider == "autoplay" || u in playlistUris)
         }
 
         val npNextUri = valid(np.next?.let(::songUri))?.takeIf { candidate ->
             val npMatchesCur = curUri == null || valid(np.uri) == null || np.uri == curUri
-            npMatchesCur && (playlistUris == null || !isPlaylist || candidate in playlistUris)
+            candidate != skippedFrom &&
+                npMatchesCur && (playlistUris == null || !isPlaylist || candidate in playlistUris)
+        }
+        val verifiedSkipTarget = skippedTarget?.takeIf { candidate ->
+            candidate != curUri && (playlistUris == null || !isPlaylist || candidate in playlistUris)
         }
 
         if (dueNext != null && dueProvider.equals("autoplay", ignoreCase = true)) {
@@ -749,14 +812,16 @@ object SongPlayer {
         }
 
         val verifiedNext = when {
+            verifiedSkipTarget != null -> verifiedSkipTarget
             dueNext != null && (playlistUris == null || !isPlaylist || dueProvider == "queue" || dueNext in playlistUris) -> dueNext
             firstQueued != null -> firstQueued.uri
             npNextUri != null -> npNextUri
             else -> null
         }
 
-        val resolvedCtx = ctx ?: verifiedNext ?: curUri ?: return null
-        val candidateTrack = (verifiedNext ?: if (playlistUris == null) curUri else null)?.takeIf { it != resolvedCtx }
+        val safeCurUri = curUri?.takeIf { it != skippedFrom }
+        val resolvedCtx = ctx ?: verifiedNext ?: safeCurUri ?: return null
+        val candidateTrack = (verifiedNext ?: if (playlistUris == null) safeCurUri else null)?.takeIf { it != resolvedCtx }
         val resolvedIdx = if (order.isNullOrEmpty() && candidateTrack != null && playlistUris != null) {
             val curIdx = curUri?.let { u -> playlistUris.indexOfFirst { it == u } } ?: -1
             val idx = if (curIdx >= 0) {
@@ -1009,9 +1074,16 @@ object SongPlayer {
         // Tracks only: this is the music setting (similar songs). An episode the page rolls on
         // to after the previous one belongs to the show, not to that recommendation autoplay —
         // pausing it there is how a podcast "stopped by itself" (B11).
+        // A standalone track played from Search (`contextUri` is a single `spotify:track:...` or blank)
+        // has no list of its own, so its continuation is always `provider == "autoplay"`: never
+        // auto-pause a searched song's continuation.
+        val standaloneTrackContext = s.contextUri.orEmpty().startsWith(SPOTIFY_TRACK_PREFIX) ||
+            lastConfirmedContextUri.startsWith(SPOTIFY_TRACK_PREFIX) ||
+            (s.contextUri.isNullOrBlank() && lastConfirmedContextUri.isBlank())
         if (item != null && item.provider == "autoplay" && uri.startsWith(SPOTIFY_TRACK_PREFIX) &&
-            uri != autoplayHandledUri && !com.music.spotui.data.preferences.AutoplayPref.on) {
+            uri != autoplayHandledUri && !com.music.spotui.data.preferences.AutoplayPref.on && !standaloneTrackContext) {
             autoplayHandledUri = uri
+            app.myspoti.host.android.Logbook.log("autoplay off: pausing on autoplay song ${item.name} ($uri)")
             if (!s.isPaused) pauseSilently()
         }
         if (item != null && trackChanged && playing && !adState.value && uri.startsWith(SPOTIFY_TRACK_PREFIX)) skipHidden(id, uri)
@@ -1604,6 +1676,11 @@ object SongPlayer {
         songs: List<SongsModel>? = null, askExtensions: Boolean = true, alone: Boolean = false,
     ) {
         userActed()
+        lastSkippedFromUri = null
+        lastSkipTargetUri = null
+        if (alone && !com.music.spotui.data.preferences.AutoplayPref.on) {
+            com.music.spotui.data.preferences.AutoplayPref.set(Graph.app, true)
+        }
         // Data saver on mobile data: Spotify can't stream, only downloads and Local Files play.
         if (com.music.spotui.data.DataSaver.active) {
             main.post {
@@ -2301,7 +2378,16 @@ object SongPlayer {
         // player stuck until reloaded), and each song skipped through asks for a licence.
         val now = SystemClock.elapsedRealtime()
         val sinceSent = now - skipSentAt
-        if (now - burstAt > SKIP_BURST_MS && sinceSent >= MIN_SKIP_GAP_MS) {
+        val curBeforeSkip = _nowPlaying.value.uri.ifBlank { lastConfirmedTrackUri }.takeIf { it.isNotBlank() }
+        if (curBeforeSkip != null) {
+            lastSkippedFromUri = curBeforeSkip
+            lastSkippedAtMs = now
+        }
+        // Native audio handles rapid skips directly on its state machine/dealer socket, while the
+        // WebView's apiQueue lags behind native track changes and would jump back to an old song
+        // if merged through burstUpcoming / skipTo / verifyBurst.
+        val directSkip = nativeControlsAccount() || (now - burstAt > SKIP_BURST_MS && sinceSent >= MIN_SKIP_GAP_MS)
+        if (directSkip) {
             burstAt = now
             burstUpcoming = apiQueue?.let { it.queued + it.nextUp }.orEmpty()
             burstTaps = 1
@@ -2321,8 +2407,8 @@ object SongPlayer {
             // The device check after the skip, as for a resume: before it, a slow network held
             // every skip for the device list's round trip (up to DEVICES_WAIT_MS).
             transport(waitReady = !stateSeen, checkAfter = true, pullBack = false, done = { ok -> skipDone(shown, ok) }) {
-                val now = api.player.state.value?.item?.uri
-                if (tappedOn != null && now != null && now != tappedOn) {
+                val curNow = api.player.state.value?.item?.uri
+                if (!nativeControlsAccount() && tappedOn != null && curNow != null && curNow != tappedOn) {
                     app.myspoti.host.android.Logbook.log("next not sent: the song it was tapped on had already ended")
                     return@transport
                 }
@@ -2361,12 +2447,13 @@ object SongPlayer {
         // the fifth. A burst shows the song its taps add up to.
         val n = if (burstTaps <= 1) _nowPlaying.value.next
             else burstUpcoming.getOrNull(burstTaps - 1)?.let(::songOf)
-        if (n == null) {
+        if (n == null || (lastSkippedFromUri != null && SPOTIFY_TRACK_PREFIX + n.spotifyTrackId == lastSkippedFromUri)) {
             pendingTrackId = null
             pendingItemUri = null
             pendingSkip = 0
             return 0
         }
+        lastSkipTargetUri = SPOTIFY_TRACK_PREFIX + n.spotifyTrackId
         markPending(n.spotifyTrackId, holdMs = SKIP_PENDING_MAX_MS)
         pendingSkip = token
         boundState?.updateSongState(n.coverUri, n.title, n.singer, true, n.id, 0, n.album)

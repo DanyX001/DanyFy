@@ -44,13 +44,17 @@ sealed class EngineEvent {
     data class Preloaded(val uri: String) : EngineEvent()
     /** A server-inserted ad is current. The engine fetches and reports nothing for it (ADS.md). */
     data class AdBreak(val uri: String, val durationMs: Long) : EngineEvent()
-    object ContextEnded : EngineEvent()
+    object ContextEnded : EngineEvent() {
+        override fun toString(): String = "ContextEnded"
+    }
     data class TokenRefreshed(val url: String) : EngineEvent()
     data class Unauthorized(val url: String) : EngineEvent()
     data class RateLimited(val url: String, val retryAfterMs: Long, val attempt: Int) : EngineEvent()
     data class Failure(val message: String) : EngineEvent()
     /** The dealer WebSocket closed: no command reaches this device until it is started again. */
-    object Disconnected : EngineEvent()
+    object Disconnected : EngineEvent() {
+        override fun toString(): String = "Disconnected"
+    }
 }
 
 /**
@@ -78,6 +82,19 @@ class NativeEngine(
     private val _events = MutableSharedFlow<EngineEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<EngineEvent> = _events
 
+    /** Compact metadata of an adjacent (`next` / `previous`) state-machine track. */
+    data class TrackSummary(
+        val uri: String,
+        val name: String,
+        val artists: String,
+        val album: String,
+        val imageUrl: String?,
+        val durationMs: Long,
+        val authors: List<Pair<String, String>> = emptyList(),
+        val albumUri: String? = null,
+        val provider: String? = null,
+    )
+
     /**
      * The song the engine plays, as the account's state machine names it, and where it is: for a
      * screen with no Web Player page to read the state from (a watch). Null with nothing loaded.
@@ -97,6 +114,10 @@ class NativeEngine(
         val albumUri: String? = null,
         /** State-machine provider (`"context"`, `"queue"`, `"autoplay"`, ...). */
         val provider: String? = null,
+        /** Next non-ad track in the engine's current state machine, when known. */
+        val next: TrackSummary? = null,
+        /** Previous non-ad track in the engine's current state machine, when known. */
+        val previous: TrackSummary? = null,
     )
 
     /** Snapshot captured around a server-inserted ad break or non-ad track transition. */
@@ -110,13 +131,53 @@ class NativeEngine(
     private val _now = kotlinx.coroutines.flow.MutableStateFlow<Now?>(null)
     val now: kotlinx.coroutines.flow.StateFlow<Now?> = _now
 
+    private fun summaryOf(t: AdvanceTarget): TrackSummary {
+        val m = t.nextTrack.metadata
+        val prov = t.nextState.trackProvider ?: t.nextState.endContentInfo?.provider
+        return TrackSummary(
+            uri = m.uri,
+            name = m.name.orEmpty(),
+            artists = m.authors.mapNotNull { it.name }.joinToString(", "),
+            album = m.groupName.orEmpty(),
+            imageUrl = m.images.filter { it.url != null }.minByOrNull { kotlin.math.abs((it.width ?: 0) - 300) }?.url,
+            durationMs = m.duration,
+            authors = m.authors.mapNotNull { a -> a.name?.let { (a.uri ?: "") to it } },
+            albumUri = m.groupUri,
+            provider = prov,
+        )
+    }
+
+    private fun adjacentSummariesLocked(p: Playback): Pair<TrackSummary?, TrackSummary?> {
+        val sm = machine ?: return null to null
+        val idx = stateIndex.takeIf { it in sm.states.indices && sm.states[it].id == p.stateId }
+            ?: sm.states.indexOfFirst { it.id == p.stateId }.takeIf { it >= 0 }
+            ?: return null to null
+        val st = sm.states[idx]
+        val nextTarget = findAdvanceTargetLocked(p, allowAdFallback = false)
+            ?.takeIf { !isAdTrack(it.nextTrack, it.nextState) && it.nextTrack.metadata.uri != p.track.metadata.uri }
+            ?: resolveTargetLocked(sm, st.transitions.showNext)
+                ?.takeIf { !isAdTrack(it.nextTrack, it.nextState) && it.nextTrack.metadata.uri != p.track.metadata.uri }
+        val prevTarget = resolveTargetLocked(sm, st.transitions.skipPrev)
+            ?.takeIf { !isAdTrack(it.nextTrack, it.nextState) && it.nextTrack.metadata.uri != p.track.metadata.uri }
+        return nextTarget?.let(::summaryOf) to prevTarget?.let(::summaryOf)
+    }
+
     private fun publishNow(p: Playback?, positionMs: Long, playing: Boolean, buffering: Boolean = false) {
         val m = p?.track?.metadata
-        _now.value = if (m == null) null else Now(
+        if (m == null) {
+            _now.value = null
+            return
+        }
+        val (nextSummary, prevSummary) = adjacentSummariesLocked(p)
+        val resolvedCtx = m.contextUri?.takeIf { it.isNotBlank() && !it.startsWith("spotify:ad:") }
+            ?: lastNonAdContextUri
+        _now.value = Now(
             m.uri, m.name.orEmpty(), m.authors.mapNotNull { it.name }.joinToString(", "), m.groupName.orEmpty(),
             m.images.filter { it.url != null }.minByOrNull { kotlin.math.abs((it.width ?: 0) - 300) }?.url,
-            m.duration, playing, positionMs, env.nowMs(), m.contextUri, buffering,
+            m.duration, playing, positionMs, env.nowMs(), resolvedCtx, buffering,
             m.authors.mapNotNull { a -> a.name?.let { (a.uri ?: "") to it } }, m.groupUri, p.provider,
+            next = nextSummary,
+            previous = prevSummary,
         )
     }
 
@@ -188,6 +249,17 @@ class NativeEngine(
             field = v
             if (v == 0) player.cancelCrossfade()
         }
+
+    /** Whether recommendation autoplay after a list context is enabled; false skips early crossfade into autoplay tracks. */
+    @Volatile var autoplayEnabled: Boolean = true
+
+    /** Pre-fetches the Widevine service certificate and licence endpoint URL off the critical path of the first track load. */
+    suspend fun warmLicences() {
+        runCatchingNonCancel { licences.certificate() }
+        if (spclient.isNotBlank()) {
+            runCatchingNonCancel { licences.licenceUrl() }
+        }
+    }
 
     private val sp = SpClient(http, tokens, config) { emit(it) }
     private val resolver = Resolver(sp, config, env)
@@ -328,7 +400,12 @@ class NativeEngine(
         }
         reportLock.withLock {
             // A report the server refuses must not keep the device registered and the socket open.
-            outgoing?.let { runCatchingNonCancel { finalize(it, "endplay", null) }; player.stop() }
+            outgoing?.let {
+                if (it.started && it.msPlayed > 0L) {
+                    runCatchingNonCancel { finalize(it, "endplay", null) }
+                }
+                player.stop()
+            }
             runCatchingNonCancel { flushTimeline() }
             runCatchingNonCancel {
                 val delSeq = stateLock.withLock { ++seq }
@@ -480,7 +557,10 @@ class NativeEngine(
         }
         if (resumeLocal) player.resume()
     }
-    suspend fun skipNext() = command("skip_next")
+    suspend fun skipNext() {
+        pendingLoadReport?.let { withTimeoutOrNull(2_000L) { it.await() } }
+        command("skip_next")
+    }
 
     /**
      * Jumps to [trackUri] in [contextUri]: uses one `play` command when the context and order are
@@ -689,6 +769,8 @@ class NativeEngine(
         var startPos = 0L
         var prevPos: Long? = null
         var gen = 0L
+        var prevMachine: StateMachine? = null
+        var prevStateIndex = -1
 
         val proceed = stateLock.withLock {
             if (mySeq != null && mySeq != latestReplaceSeq) return@withLock false
@@ -728,6 +810,8 @@ class NativeEngine(
             // Detach the outgoing song under the lock so a superseded skip does not finalize it twice
             // or stall the lock on HTTP reports; resolve runs outside the lock so it can cancel cleanly.
             outgoing = current
+            prevMachine = machine
+            prevStateIndex = stateIndex
             prevPos = outgoing?.lastPosition ?: lastFinalizedPosition
             outgoing?.let { lastFinalizedPosition = it.lastPosition }
             current = null
@@ -783,7 +867,13 @@ class NativeEngine(
             if (isAdTrack(track, state)) {
                 stateLock.withLock {
                     if ((mySeq != null && mySeq != latestReplaceSeq) || trackGeneration != gen) return@withLock
-                    findNonAdHintPairForStateLocked(state)?.let { (hintUri, hintProv) ->
+                    val hint = findNonAdHintPairForStateLocked(state)
+                        ?: prevMachine?.let { pm ->
+                            val pState = prevStateIndex.takeIf { it in pm.states.indices }?.let { pm.states[it] }
+                                ?: outgoing?.stateId?.let { sid -> pm.states.firstOrNull { it.id == sid } }
+                            if (pState != null) findNonAdHintPairInMachineLocked(pm, pState) else null
+                        }
+                    hint?.let { (hintUri, hintProv) ->
                         if (hintUri != null) {
                             adNextHint = hintUri
                             adNextProvider = hintProv
@@ -795,8 +885,6 @@ class NativeEngine(
             }
             val proceedNonAd = stateLock.withLock {
                 if ((mySeq != null && mySeq != latestReplaceSeq) || trackGeneration != gen) return@withLock false
-                adNextHint = null
-                adNextProvider = null
                 recordNonAdContextLocked(state, track)
                 true
             }
@@ -951,8 +1039,6 @@ class NativeEngine(
         }
         val proceedLoad = stateLock.withLock {
             if (expectedGen != null && trackGeneration != expectedGen) return@withLock false
-            adNextHint = null
-            adNextProvider = null
             recordNonAdContextLocked(state, track)
             true
         }
@@ -1137,11 +1223,18 @@ class NativeEngine(
             ?: m.groupUri?.takeIf { it.isNotBlank() && !it.startsWith("spotify:ad:") }
         if (candidateCtx != null) lastNonAdContextUri = candidateCtx
         if (trackUri != null) lastNonAdTrackUri = trackUri
+        val hint = findNonAdHintPairForStateLocked(state)
+        adNextHint = hint?.first?.takeIf { it != trackUri }
+        adNextProvider = hint?.second
     }
 
     private fun findNonAdHintPairForStateLocked(state: SmState): Pair<String?, String?>? {
         val sm = machine ?: return null
-        val curIdx = stateIndex.takeIf { it in sm.states.indices && sm.states[it].id == state.id }
+        return findNonAdHintPairInMachineLocked(sm, state)
+    }
+
+    private fun findNonAdHintPairInMachineLocked(sm: StateMachine, state: SmState): Pair<String?, String?>? {
+        val curIdx = stateIndex.takeIf { sm === machine && it in sm.states.indices && sm.states[it].id == state.id }
             ?: sm.states.indexOfFirst { it.id == state.id }
         if (curIdx < 0) return null
         fun pairOf(t: AdvanceTarget): Pair<String?, String?> =
@@ -1367,7 +1460,11 @@ class NativeEngine(
                 remaining in 1..window
             ) {
                 val adv = findAdvanceTargetLocked(p, allowAdFallback = false)
+                val nextProv = adv?.let { it.nextState.trackProvider ?: it.nextState.endContentInfo?.provider }
+                val isStandaloneTrackCtx = lastNonAdContextUri?.startsWith("spotify:track:") == true
+                val allowAutoplayCrossfade = autoplayEnabled || isStandaloneTrackCtx || !nextProv.equals("autoplay", ignoreCase = true)
                 if (adv != null &&
+                    allowAutoplayCrossfade &&
                     !isAdTrack(adv.nextTrack, adv.nextState) &&
                     adv.nextState.id != p.stateId &&
                     adv.nextTrack.metadata.uri != p.track.metadata.uri

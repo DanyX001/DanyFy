@@ -83,6 +83,7 @@ object AutoplayPref {
     fun set(c: Context, value: Boolean) {
         on = value
         prefs(c).edit().putBoolean(KEY, value).apply()
+        com.music.spotui.di.NativeAudio.setAutoplayEnabled(value)
     }
 }
 

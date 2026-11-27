@@ -92,6 +92,7 @@ internal object AdRecoveryPolicy {
         hintCurrentTrack: String? = null,
         hintNextProvider: String? = null,
         repeatAll: Boolean = false,
+        skippedFromTrack: String? = null,
     ): AdRecoveryTarget? {
         fun clean(uri: String?) = uri?.takeIf { it.isNotBlank() && !it.startsWith("spotify:ad:") }
 
@@ -102,6 +103,7 @@ internal object AdRecoveryPolicy {
         val cleanAppTrack = clean(appTarget?.trackUri)
         val cleanLastCtx = clean(lastPlayed?.contextUri)
         val cleanLastTrack = clean(lastPlayed?.trackUri)
+        val cleanSkippedFrom = clean(skippedFromTrack)
         val curTrack = cleanHintCur ?: cleanLastTrack
 
         // Autoplay tracks do not belong to the playlist context: play them standalone so Spotify
@@ -132,13 +134,15 @@ internal object AdRecoveryPolicy {
         val playlistForCtx = appTarget?.playlistTracks?.takeIf { cleanAppCtx == null || cleanAppCtx == ctx }
         val isListContext = ctx != null && (ctx.startsWith("spotify:playlist:") || ctx.startsWith("spotify:collection:"))
         val verifiedHintTrack = cleanHintTrack?.takeIf { candidate ->
-            playlistForCtx == null || !isListContext ||
-                hintNextProvider.equals("queue", ignoreCase = true) ||
-                hintNextProvider.equals("autoplay", ignoreCase = true) ||
-                candidate in playlistForCtx
+            candidate != cleanSkippedFrom &&
+                (playlistForCtx == null || !isListContext ||
+                    hintNextProvider.equals("queue", ignoreCase = true) ||
+                    hintNextProvider.equals("autoplay", ignoreCase = true) ||
+                    candidate in playlistForCtx)
         }
         val verifiedAppTrack = matchingAppTrack?.takeIf { candidate ->
-            playlistForCtx == null || !isListContext || candidate in playlistForCtx
+            candidate != cleanSkippedFrom &&
+                (playlistForCtx == null || !isListContext || candidate in playlistForCtx)
         }
         val effectiveShuffle = appTarget?.shuffle ?: lastPlayed?.shuffle
         val resolvedOrder = appTarget?.order?.takeIf { (ctx == null || it.isNotEmpty() && ctx == appTarget.contextUri) }
@@ -168,7 +172,7 @@ internal object AdRecoveryPolicy {
             }
         }
         if (track == null) {
-            track = curTrack ?: cleanLastTrack
+            track = (curTrack ?: cleanLastTrack)?.takeIf { it != cleanSkippedFrom }
         }
 
         val resolvedCtx = ctx ?: track ?: return null
@@ -219,6 +223,10 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
     @Volatile private var setAsideAtMs = 0L
     /** App-level provider of the next non-ad context/track when bypassing a native/WebView ad break. */
     @Volatile internal var adRecoveryTarget: ((NativeEngine.AdRecoveryHint?) -> AdRecoveryTarget?)? = null
+    /** App-level provider of the track URI the user most recently pressed Next away from. */
+    @Volatile internal var lastSkippedFromTrack: (() -> String?)? = null
+    /** App-level callback invoked when a standalone track context finishes with no further state-machine transition. */
+    @Volatile internal var onContextEnded: ((AdRecoveryTarget?) -> Unit)? = null
     @Volatile private var lastLocalPlay: AdRecoveryTarget? = null
     @Volatile private var recoveringAd = false
     @Volatile private var lastAdRecoveryAtMs = 0L
@@ -270,6 +278,10 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
         crossfadeSeconds = clamped
         engine?.crossfadeSeconds = clamped
         log("crossfade set to ${clamped}s")
+    }
+
+    fun setAutoplayEnabled(enabled: Boolean) {
+        engine?.autoplayEnabled = enabled
     }
 
     override val deviceId: String? get() = engine?.deviceId
@@ -384,8 +396,7 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
     private suspend fun foreground() {
         if (app.myspoti.host.android.PlaybackService.isRunning) return
         app.myspoti.host.android.PlaybackService.ensureStarted(Graph.app)
-        kotlinx.coroutines.withTimeoutOrNull(FOREGROUND_MS) { while (!app.myspoti.host.android.PlaybackService.isRunning) kotlinx.coroutines.delay(40) }
-        kotlinx.coroutines.delay(150)
+        kotlinx.coroutines.withTimeoutOrNull(FOREGROUND_MS) { while (!app.myspoti.host.android.PlaybackService.isRunning) kotlinx.coroutines.delay(25) }
     }
     private const val FOREGROUND_MS = 2_000L
     private const val LOAD_WAIT_MS = 6_000L
@@ -405,6 +416,9 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
         foreground()
         ensureActiveTrack(e, "restore")
         commandAtMs = System.currentTimeMillis()
+        // Silence/fade any ongoing crossfade or old track immediately so the speaker does not keep
+        // playing the previous song for 1-2 s while skip_next + replace_state complete.
+        player?.fadeOutCurrent(160L)
         try {
             e.skipNext()
         } catch (c: kotlinx.coroutines.CancellationException) {
@@ -418,6 +432,7 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
         val e = readyForCommand()
         foreground()
         ensureActiveTrack(e, "restore")
+        player?.fadeOutCurrent(160L)
         try {
             e.previous()
         } catch (c: kotlinx.coroutines.CancellationException) {
@@ -590,6 +605,7 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
         try {
             val snap = (failed ?: currentEngine)?.adRecoverySnapshot()
             val appTarget = explicitTarget ?: runCatching { adRecoveryTarget?.invoke(snap) }.getOrNull()
+            val skippedFrom = runCatching { lastSkippedFromTrack?.invoke() }.getOrNull()
             val target = AdRecoveryPolicy.pickRecoveryTarget(
                 hintCtx = snap?.contextUri,
                 hintTrack = snap?.nextTrackUri,
@@ -598,6 +614,7 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
                 hintCurrentTrack = snap?.trackUri,
                 hintNextProvider = snap?.nextProvider,
                 repeatAll = SongPlayer.repeatMode.value == 1,
+                skippedFromTrack = skippedFrom,
             )
             adRecoveryTimes.addLast(now)
             lastAdRecoveryAtMs = now
@@ -738,7 +755,10 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
         com.music.spotui.rust.OrpheonRustAudio.versionOrNull()?.let { log("rust engine active: $it") }
         val config = NativeTokens.config(spotify.http)
         val e = NativeEngine(logged, NativeTokens(spotify.http), OkHttpWebSockets(MyspotiRuntime.apiHttp), Observed(p), AndroidEnvironment, config, scope)
-            .also { it.crossfadeSeconds = crossfadeSeconds }
+            .also {
+                it.crossfadeSeconds = crossfadeSeconds
+                it.autoplayEnabled = com.music.spotui.data.preferences.AutoplayPref.on
+            }
         // A pause the player made itself (focus lost, headphones out) becomes a pause command, so
         // the account's state follows and the engine reports it when the push comes back.
         p.onPlayerPause = { why -> log("player paused itself: $why"); scope.launch { runCatching { e.pause() } } }
@@ -746,6 +766,10 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
             e.events.collect { ev ->
                 lastEvent = ev.toString().take(120)
                 log("event $ev")
+                if (ev is EngineEvent.ContextEnded) {
+                    val last = lastLocalPlay
+                    scope.launch { runCatching { onContextEnded?.invoke(last) } }
+                }
                 if (ev is EngineEvent.TrackLoading) {
                     val snap = e.adRecoverySnapshot()
                     val ctx = snap.contextUri
@@ -811,17 +835,26 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
         log("registered ${e.deviceId.take(8)}… on ${e.spclient.substringAfter("://")}, http ${chromium.status}")
         engine = e
         _current.value = e
+        scope.launch { runCatching { e.warmLicences() } }
         e
     }
 
     private fun dropped(e: NativeEngine, reason: String = "the dealer closed: the engine leaves the account until its next use") {
         scope.launch {
+            var shouldRewarm = false
             lock.withLock {
                 if (engine !== e) return@withLock
                 log(reason)
                 runCatching { e.close() }
                 player?.release()
                 engine = null; player = null; _current.value = null
+                shouldRewarm = on && AppForeground.inForeground && !AccountSync.watchActive
+            }
+            if (shouldRewarm) {
+                delay(1_500L)
+                if (on && AppForeground.inForeground && !AccountSync.watchActive && engine == null) {
+                    runCatching { warmUp() }
+                }
             }
         }
     }
