@@ -507,7 +507,7 @@ class Api constructor(
         }
         if (episodes.exceptionOrNull() is CancellationException) throw episodes.exceptionOrNull()!!
         episodes.fold(
-            onSuccess = { songs -> SongPlayer.registerContext(songs.map { it.url }, uri); emit(Response.Success(songs)) },
+            onSuccess = { songs -> SongPlayer.registerContext(songs.map { it.url }, uri, songs); emit(Response.Success(songs)) },
             onFailure = { Log.e("Api", "getShowEpisodes failed", it); emit(Response.Error(it.message ?: "error")) },
         )
     }.flowOn(Dispatchers.Default)
@@ -569,7 +569,7 @@ class Api constructor(
             emit(Response.Error(failure.message ?: "error"))
             return@flow
         }
-        SongPlayer.registerContext(rows.map { it.url }, uri)
+        SongPlayer.registerContext(rows.map { it.url }, uri, rows)
         emit(Response.Success(pageOf(showId, head, book, rows, audiobook)))
     }.flowOn(Dispatchers.Default)
 
@@ -733,7 +733,7 @@ class Api constructor(
         val page = firstReleases.first
         val avatar = big(page.artist.images)
         val top = page.topTracks.map { t -> songOf(t.track).let { if (it.coverUri.isBlank()) it.copy(coverUri = avatar) else it } to t.playcount }
-        SongPlayer.registerContext(top.map { it.first.url }, uri)
+        SongPlayer.registerContext(top.map { it.first.url }, uri, top.map { it.first })
         val model = ArtistOverviewModel(
             id = idOf(uri),
             name = page.artist.name.ifBlank { artistName },
@@ -872,7 +872,10 @@ class Api constructor(
             complete = complete,
         )
         if (LikedCache.tracks == null) LikedCache.tracks = withContext(Dispatchers.IO) { ScreenCache.liked.read() }
-        LikedCache.tracks?.let { emit(Response.Success(page(it, true))) } ?: emit(Response.Loading())
+        LikedCache.tracks?.let {
+            SongPlayer.registerLikedSongs(it.map { s -> s.url }, it)
+            emit(Response.Success(page(it, true)))
+        } ?: emit(Response.Loading())
         if (!ready()) { if (LikedCache.tracks == null) emit(Response.Error(notSignedIn())); return@flow }
         val known = LikedCache.tracks
         if (!full && known != null) {
@@ -886,7 +889,7 @@ class Api constructor(
                     val merged = LikedCache.merge(head, known)
                     LikedCache.tracks = merged
                     ScreenCache.liked.write(merged)
-                    SongPlayer.registerLikedSongs(merged.map { it.url })
+                    SongPlayer.registerLikedSongs(merged.map { it.url }, merged)
                     emit(Response.Success(page(merged, true)))
                     return@flow
                 }
@@ -905,7 +908,7 @@ class Api constructor(
         LikedCache.tracks = tracks
         ScreenCache.liked.write(tracks)
         ScreenCache.markLikedFull()
-        SongPlayer.registerLikedSongs(tracks.map { it.url })
+        SongPlayer.registerLikedSongs(tracks.map { it.url }, tracks)
         emit(Response.Success(page(tracks, true)))
     }.flowOn(Dispatchers.Default)
 
@@ -919,7 +922,7 @@ class Api constructor(
         val merged = LikedCache.merge(head, LikedCache.tracks.orEmpty())
         LikedCache.tracks = merged
         withContext(Dispatchers.IO) { ScreenCache.liked.write(merged) }
-        SongPlayer.registerLikedSongs(merged.map { it.url })
+        SongPlayer.registerLikedSongs(merged.map { it.url }, merged)
         merged
     }.getOrNull()
 
@@ -962,7 +965,7 @@ class Api constructor(
         val uri = if (onSpotify) "spotify:album:$albumId" else albumId
         val saved = if (stored && onSpotify) withContext(Dispatchers.IO) { ScreenCache.albumPage(albumId).read() } else null
         if (saved != null) {
-            SongPlayer.registerContext(saved.tracks.map { it.url }, uri)
+            SongPlayer.registerContext(saved.tracks.map { it.url }, uri, saved.tracks)
             emit(Response.Success(saved))
         }
         if (!ready()) { if (saved == null) emit(Response.Error(notSignedIn())); return@flow }
@@ -983,7 +986,7 @@ class Api constructor(
             }
         }.getOrElse { if (saved == null) emit(Response.Error(context.getString(R.string.album_not_found))); return@flow }
         val songs = tracks.map { songOf(it).copy(album = album.name, coverUri = cover(album.images), albumId = albumId) }
-        SongPlayer.registerContext(songs.map { it.url }, uri)
+        SongPlayer.registerContext(songs.map { it.url }, uri, songs)
         val type = context.getString(when (album.type) {
             "SINGLE" -> R.string.album_type_single; "EP" -> R.string.album_type_ep
             "COMPILATION" -> R.string.album_type_compilation; else -> R.string.album_type_album
@@ -1062,7 +1065,8 @@ class Api constructor(
         val songs = ArrayList<SongsModel>()
         var failed = false
         fun publish(done: Boolean): Response<ContextPageModel> {
-            SongPlayer.registerContext(songs.map { it.url }, uri)
+            val snapshot = songs.toList()
+            SongPlayer.registerContext(snapshot.map { it.url }, uri, snapshot)
             // Kept before the emit: a collector that stops at the complete page ends the flow there.
             if (done && !failed) PlaylistFresh.put(uri, songs.toList())
             val total = songs.sumOf { it.durationMs.toLong() }

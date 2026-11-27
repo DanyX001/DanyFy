@@ -118,6 +118,8 @@ class NativeEngine(
         val next: TrackSummary? = null,
         /** Previous non-ad track in the engine's current state machine, when known. */
         val previous: TrackSummary? = null,
+        /** Ordered lookahead of upcoming non-ad tracks in the engine's current state machine. */
+        val upcoming: List<TrackSummary> = emptyList(),
     )
 
     /** Snapshot captured around a server-inserted ad break or non-ad track transition. */
@@ -147,19 +149,61 @@ class NativeEngine(
         )
     }
 
-    private fun adjacentSummariesLocked(p: Playback): Pair<TrackSummary?, TrackSummary?> {
-        val sm = machine ?: return null to null
+    private fun upcomingSummariesLocked(p: Playback): List<TrackSummary> {
+        val sm = machine ?: return emptyList()
+        val startIdx = stateIndex.takeIf { it in sm.states.indices && sm.states[it].id == p.stateId }
+            ?: sm.states.indexOfFirst { it.id == p.stateId }.takeIf { it >= 0 }
+            ?: return emptyList()
+        val out = ArrayList<TrackSummary>()
+        val seenUris = HashSet<String>()
+        seenUris += p.track.metadata.uri
+        val visitedStates = HashSet<Int>()
+        var cursor = startIdx
+        while (cursor in sm.states.indices && visitedStates.add(cursor) && out.size < 30) {
+            val st = sm.states[cursor]
+            val target = resolveTargetLocked(sm, st.transitions.advance)
+                ?.takeIf { !isAdTrack(it.nextTrack, it.nextState) }
+                ?: resolveTargetLocked(sm, st.transitions.skipNext)
+                    ?.takeIf { !isAdTrack(it.nextTrack, it.nextState) }
+                ?: resolveTargetLocked(sm, st.transitions.showNext)
+                    ?.takeIf { !isAdTrack(it.nextTrack, it.nextState) }
+            if (target != null) {
+                val uri = target.nextTrack.metadata.uri
+                if (uri.isNotBlank() && !uri.startsWith("spotify:ad:") && seenUris.add(uri)) {
+                    out += summaryOf(target)
+                }
+                cursor = target.next.stateIndex ?: break
+            } else {
+                val rawNext = st.transitions.advance?.stateIndex
+                    ?: st.transitions.skipNext?.stateIndex
+                    ?: st.transitions.showNext?.stateIndex
+                    ?: break
+                cursor = rawNext
+            }
+        }
+        return out
+    }
+
+    private fun adjacentSummariesLocked(p: Playback): Triple<TrackSummary?, TrackSummary?, List<TrackSummary>> {
+        val sm = machine ?: return Triple(null, null, emptyList())
         val idx = stateIndex.takeIf { it in sm.states.indices && sm.states[it].id == p.stateId }
             ?: sm.states.indexOfFirst { it.id == p.stateId }.takeIf { it >= 0 }
-            ?: return null to null
+            ?: return Triple(null, null, emptyList())
         val st = sm.states[idx]
+        val upcoming = upcomingSummariesLocked(p)
         val nextTarget = findAdvanceTargetLocked(p, allowAdFallback = false)
             ?.takeIf { !isAdTrack(it.nextTrack, it.nextState) && it.nextTrack.metadata.uri != p.track.metadata.uri }
             ?: resolveTargetLocked(sm, st.transitions.showNext)
                 ?.takeIf { !isAdTrack(it.nextTrack, it.nextState) && it.nextTrack.metadata.uri != p.track.metadata.uri }
         val prevTarget = resolveTargetLocked(sm, st.transitions.skipPrev)
             ?.takeIf { !isAdTrack(it.nextTrack, it.nextState) && it.nextTrack.metadata.uri != p.track.metadata.uri }
-        return nextTarget?.let(::summaryOf) to prevTarget?.let(::summaryOf)
+        val nextSummary = nextTarget?.let(::summaryOf) ?: upcoming.firstOrNull()
+        val fullUpcoming = if (nextSummary != null && upcoming.firstOrNull()?.uri != nextSummary.uri) {
+            listOf(nextSummary) + upcoming.filter { it.uri != nextSummary.uri }
+        } else {
+            upcoming
+        }
+        return Triple(nextSummary, prevTarget?.let(::summaryOf), fullUpcoming)
     }
 
     private fun publishNow(p: Playback?, positionMs: Long, playing: Boolean, buffering: Boolean = false) {
@@ -168,7 +212,7 @@ class NativeEngine(
             _now.value = null
             return
         }
-        val (nextSummary, prevSummary) = adjacentSummariesLocked(p)
+        val (nextSummary, prevSummary, upcoming) = adjacentSummariesLocked(p)
         val resolvedCtx = m.contextUri?.takeIf { it.isNotBlank() && !it.startsWith("spotify:ad:") }
             ?: lastNonAdContextUri
         _now.value = Now(
@@ -178,6 +222,7 @@ class NativeEngine(
             m.authors.mapNotNull { a -> a.name?.let { (a.uri ?: "") to it } }, m.groupUri, p.provider,
             next = nextSummary,
             previous = prevSummary,
+            upcoming = upcoming,
         )
     }
 
@@ -563,8 +608,8 @@ class NativeEngine(
     }
 
     /**
-     * Jumps to [trackUri] in [contextUri]: uses one `play` command when the context and order are
-     * preserved, `skip_next` when one step or a short queued/shuffled hop away.
+     * Jumps to [trackUri] in [contextUri]: uses one `play` command when the context is
+     * preserved, `skip_next` when one step or a short queued hop away.
      */
     suspend fun skipTo(
         contextUri: String?,
@@ -574,10 +619,11 @@ class NativeEngine(
         order: List<String>? = null,
         shuffle: Boolean? = null,
         steps: Int? = null,
+        trackIndex: Int? = null,
     ) {
         if (steps == 1) { skipNext(); return }
-        if (contextUri != null && provider != "queue" && provider != "autoplay" && (!order.isNullOrEmpty() || shuffle != true)) {
-            play(contextUri, trackUri, order = order, shuffle = shuffle)
+        if (contextUri != null && provider != "queue" && provider != "autoplay") {
+            play(contextUri, trackUri, trackIndex = trackIndex, order = order, shuffle = shuffle)
             return
         }
         val hops = steps?.takeIf { it in 1..MAX_SKIP_HOPS }
@@ -585,7 +631,15 @@ class NativeEngine(
             repeat(hops) { skipNext() }
             return
         }
-        play(contextUri ?: trackUri, trackUri.takeIf { contextUri != null && it != contextUri }, order = order, shuffle = shuffle)
+        play(contextUri ?: trackUri, trackUri.takeIf { contextUri != null && it != contextUri }, trackIndex = trackIndex, order = order, shuffle = shuffle)
+    }
+
+    /** Cancels any in-flight dealer track load when a rapid multi-skip burst has already moved past it. */
+    fun abortPendingTrackLoad() {
+        latestReplaceSeq++
+        activeReplaceStateId = null
+        pendingLoadReport?.let { it.complete(Unit); pendingLoadReport = null }
+        dealerJob?.cancel()
     }
     /**
      * A seek of the song loaded here. Sent once a load under way is reported (its
@@ -861,7 +915,8 @@ class NativeEngine(
         val track = nextTrack ?: return
         try {
             // The song going out is finalized in the machine it played in, before the new one is taken.
-            outgoing?.let { reportLock.withLock { finalizeSafe(it, "remote", state.id, keepMachine = true) } }
+            // A track skipped before it ever started playing has nothing to finalize (Spotify rejects pos=0 with 400).
+            outgoing?.takeIf { it.started || it.msPlayed > 0L }?.let { reportLock.withLock { finalizeSafe(it, "remote", state.id, keepMachine = true) } }
             if (mySeq != null && mySeq != latestReplaceSeq) return
 
             if (isAdTrack(track, state)) {
@@ -1094,6 +1149,7 @@ class NativeEngine(
             loadReported.complete(Unit)
             return
         }
+        player.warmMedia(media, licences.channel())
         var loadDispatched = false
         try {
             reportLock.withLock {

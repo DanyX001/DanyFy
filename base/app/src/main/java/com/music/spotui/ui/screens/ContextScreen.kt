@@ -570,18 +570,20 @@ class ContextViewModel(
         // B26: keep the list's own name — the player header falls back to it when Spotify's
         // context label comes back blank (it then showed the album's name).
         SongPlayer.registerContextName(p.uri, p.name)
-        if (p.type == "liked" || p.type == "liked-artist") SongPlayer.registerLikedSongs(p.tracks.map { it.url })
+        if (p.type == "liked" || p.type == "liked-artist") SongPlayer.registerLikedSongs(p.tracks.map { it.url }, p.tracks)
+        else if (p.uri.isNotBlank()) SongPlayer.registerContext(p.tracks.map { it.url }, p.uri, p.tracks)
         // Sorted by the user: Spotify plays the list in that order, not the playlist's. An
         // artist's liked songs are a part of Liked Songs: always given, so only they play.
-        val order = if (sort.isCustom && p.type != "liked-artist") null else sort.apply(p.tracks).filter { it.spotifyTrackId.isNotBlank() }.map { "spotify:track:${it.spotifyTrackId}" }
+        val sortedTracks = sort.apply(p.tracks)
+        val order = if (sort.isCustom && p.type != "liked-artist") null else sortedTracks.filter { it.spotifyTrackId.isNotBlank() }.map { "spotify:track:${it.spotifyTrackId}" }
         // Myspoti's shuffle (an option): with shuffle on, every song of the list once, in an order of its own.
         if (com.music.spotui.di.AppShuffle.play(p, song, order)) {
             state.updateSongState(song.coverUri, song.title, song.singer, true, song.id, 0, song.album)
             return
         }
-        if (order != null) state.updateQueue(sort.apply(p.tracks))
+        if (order != null) state.updateQueue(sortedTracks)
         // The audio-source extensions were asked already (or the phone is offline): Spotify plays.
-        SongPlayer.playSong(song.url, contextUri = p.uri, order = order, askExtensions = false)
+        SongPlayer.playSong(song.url, contextUri = p.uri, order = order, songs = if (order != null) sortedTracks else p.tracks, askExtensions = false)
         state.updateSongState(song.coverUri, song.title, song.singer, true, song.id, 0, song.album)
     }
 }

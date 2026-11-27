@@ -135,6 +135,9 @@ interface DrmPlayer {
     /** Prepares [media] ahead of time (licence and first segment) for a fast switch; it must stay silent. */
     fun preload(media: PlayableMedia, licence: LicenceChannel)
 
+    /** Starts downloading initial CDN chunks and acquiring a DRM session before `before_track_load` finishes. */
+    fun warmMedia(media: PlayableMedia, licence: LicenceChannel) {}
+
     fun pause()
     fun resume()
     fun seekTo(positionMs: Long)

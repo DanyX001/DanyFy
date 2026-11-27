@@ -406,11 +406,12 @@ class SessionTest {
 
         rig.engine.skipTo("spotify:playlist:C", "spotify:track:X", provider = "context", steps = 1)
         rig.engine.skipTo("spotify:playlist:C", "spotify:track:Y", provider = "context", order = listOf("spotify:track:Y"), shuffle = false, steps = 3)
+        rig.engine.skipTo("spotify:playlist:C", "spotify:track:Z", provider = "context", shuffle = true, steps = 4, trackIndex = 120)
         rig.engine.skipTo("spotify:playlist:C", "spotify:track:Q2", provider = "queue", shuffle = true, steps = 2)
 
         val cmds = rig.http.requests.filter { "/connect-state/v1/player/command/" in it.url }.drop(beforeCmds)
             .map { rig.http.json(it)["command"]!!.jsonObject.str("endpoint") }
-        assertEquals(listOf("skip_next", "play", "skip_next", "skip_next"), cmds)
+        assertEquals(listOf("skip_next", "play", "play", "skip_next", "skip_next"), cmds)
     }
 
     @Test
@@ -1031,6 +1032,8 @@ class SessionTest {
         val liveNow = rig.engine.now.value
         assertEquals(track2Uri, liveNow?.uri)
         assertEquals(rig.trackUriOf(rig.advanceOf(2)), liveNow?.next?.uri)
+        assertTrue(liveNow?.upcoming.orEmpty().isNotEmpty())
+        assertEquals(rig.trackUriOf(rig.advanceOf(2)), liveNow?.upcoming?.firstOrNull()?.uri)
 
         // User presses Next and the server pushes an ad state whose own transitions are all null.
         rig.http.failNext("/connect-state/v1/player/command/", 403)

@@ -506,6 +506,13 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
     override suspend fun remoteNext(targetDeviceId: String?): Boolean = sendRemote("skip_next", targetDeviceId)
     override suspend fun remotePrevious(positionMs: Long, targetDeviceId: String?): Boolean =
         if (positionMs > 3_000L) remoteSeek(0L, targetDeviceId) else sendRemote("skip_prev", targetDeviceId)
+    fun fadeOutForSkip(abortInFlightLoad: Boolean = false) {
+        player?.fadeOutCurrent(120L)
+        if (abortInFlightLoad) {
+            engine?.abortPendingTrackLoad()
+        }
+    }
+
     override suspend fun skipTo(
         contextUri: String?,
         trackUri: String,
@@ -518,8 +525,25 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
         val e = readyForCommand()
         foreground()
         commandAtMs = System.currentTimeMillis()
+        player?.fadeOutCurrent(120L)
+        val resolvedCtx = contextUri?.takeIf { it.isNotBlank() }
+            ?: e.now.value?.contextUri?.takeIf { it.isNotBlank() }
+            ?: lastLocalPlay?.contextUri?.takeIf { it.isNotBlank() }
+        val idx = if (resolvedCtx != null && order.isNullOrEmpty()) SongPlayer.contextTrackIndex(resolvedCtx, trackUri, order) else null
+        val prev = lastLocalPlay
+        if (resolvedCtx != null) {
+            lastLocalPlay = AdRecoveryTarget(
+                contextUri = resolvedCtx,
+                trackUri = trackUri,
+                index = idx,
+                order = order,
+                shuffle = shuffle,
+                playlistTracks = prev?.playlistTracks?.takeIf { resolvedCtx == prev.contextUri },
+            )
+        }
+        val effectiveSteps = if (resolvedCtx != null && provider != "queue" && provider != "autoplay") null else steps
         try {
-            e.skipTo(contextUri, trackUri, trackUid, provider, order, shuffle, steps)
+            e.skipTo(resolvedCtx, trackUri, trackUid, provider, order, shuffle, effectiveSteps, trackIndex = idx)
         } catch (c: kotlinx.coroutines.CancellationException) {
             throw c
         } catch (t: Throwable) {

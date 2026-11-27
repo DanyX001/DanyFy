@@ -223,8 +223,8 @@ class Media3DrmPlayer(
             ExtractorsFactory { arrayOf(FragmentedMp4Extractor(SubtitleParser.Factory.UNSUPPORTED, 0)) },
         )
             .setDrmSessionManagerProvider(DrmSessionManagerProvider { drm })
-            // 512 KB between load-control checks so ExoPlayer keeps buffering smoothly without stalling on segment boundaries.
-            .setContinueLoadingCheckIntervalBytes(512 * 1024)
+            // 32 KB between load-control checks so ExoPlayer transitions to STATE_READY as soon as the first segment arrives.
+            .setContinueLoadingCheckIntervalBytes(32 * 1024)
         exo = buildExo().also { it.addListener(exoListener) }
     }
 
@@ -239,7 +239,7 @@ class Media3DrmPlayer(
             // Keep 30-60 s compressed buffer ahead so UI interaction or screen-off Wi-Fi jitter never underruns.
             .setLoadControl(
                 DefaultLoadControl.Builder()
-                    .setBufferDurationsMs(30_000, 60_000, 750, 2_000)
+                    .setBufferDurationsMs(30_000, 60_000, 250, 1_000)
                     .setPrioritizeTimeOverSizeThresholds(true)
                     .build()
             )
@@ -269,7 +269,7 @@ class Media3DrmPlayer(
                 .setAudioProcessors(processors)
                 .setAudioTrackBufferSizeProvider(
                     androidx.media3.exoplayer.audio.DefaultAudioTrackBufferSizeProvider.Builder()
-                        .setMinPcmBufferDurationUs(1_500_000)
+                        .setMinPcmBufferDurationUs(250_000)
                         .setMaxPcmBufferDurationUs(2_500_000)
                         .build()
                 )
@@ -516,6 +516,13 @@ class Media3DrmPlayer(
         }
     }
 
+    override fun warmMedia(media: PlayableMedia, licence: LicenceChannel) {
+        if (released) return
+        val uri = uriOf(media)
+        if (items[uri]?.isCancelled == false && preloads.containsKey(media.fileId)) return
+        preload(media, licence)
+    }
+
     override fun preload(media: PlayableMedia, licence: LicenceChannel) {
         if (released) return
         val pGen = preloadGen.incrementAndGet()
@@ -531,9 +538,14 @@ class Media3DrmPlayer(
                     item.cancel()
                 }
             }
-            val job = async { item.prefetch() }
+            val job = scope.async {
+                runCatching { item.prefetch() }.onFailure { if (it !is CancellationException) log("preload ${media.trackUri}: CDN failed: ${it.message}") }
+                Unit
+            }
             item.prefetchJob = job
-            runCatching { job.await() }.onFailure { if (it !is CancellationException) log("preload ${media.trackUri}: CDN failed: ${it.message}") }
+            if (media.widevinePssh == null) {
+                runCatching { job.await() }
+            }
             if (released || pGen != preloadGen.get()) {
                 dropIfUnused()
                 return@launch
@@ -665,7 +677,10 @@ class Media3DrmPlayer(
     }
 
     override fun fadeOutCurrent(durationMs: Long) = onPlayer {
-        if (released || current == null || muted || crossfadeActive || durationMs < 200L) return@onPlayer
+        if (released || current == null || muted || durationMs < 50L) return@onPlayer
+        if (crossfadeActive) {
+            cancelCrossfadeLocked(restoreVolume = false)
+        }
         singleFadeActive = true
         singleFadeDurationMs = durationMs
         singleFadeStartMs = System.currentTimeMillis()
