@@ -1338,10 +1338,23 @@ object SongPlayer {
         fun items(list: List<app.myspoti.api.NowPlaying>) = list
             .filter { it.uri.startsWith("spotify:track:") || it.uri.startsWith("spotify:episode:") }
             .map { QueueItem(songOf(it), it.uri, it.uid.orEmpty(), it.provider.orEmpty()) }
+        val ctx = _nowPlaying.value.contextUri.ifBlank { lastConfirmedContextUri }
+        val standaloneNative = nativeControlsAccount() && (ctx.isBlank() || ctx.startsWith(SPOTIFY_TRACK_PREFIX))
+        val effectiveNextUp = if (standaloneNative) {
+            val engineItems = NativeAudio.now.value?.upcoming.orEmpty()
+                .filter { it.provider != "queue" && (it.uri.startsWith("spotify:track:") || it.uri.startsWith("spotify:episode:")) }
+                .map { summary ->
+                    val np = nowPlayingOf(summary)
+                    QueueItem(songOf(np), np.uri, np.uid.orEmpty(), np.provider.orEmpty())
+                }
+            engineItems.ifEmpty { items(q.nextUp) }
+        } else {
+            items(q.nextUp)
+        }
         _queue.value = EngineQueue(
             current = q.current?.let(::songOf),
             queued = items(q.queued),
-            nextUp = items(q.nextUp),
+            nextUp = effectiveNextUp,
         )
         saveSpotifyQueue()
     }
@@ -1686,37 +1699,43 @@ object SongPlayer {
         val curUri = pendingItemUri?.takeIf { it.startsWith(SPOTIFY_TRACK_PREFIX) || it.startsWith("spotify:episode:") }
             ?: _nowPlaying.value.uri.ifBlank { lastConfirmedTrackUri }
         val ctx = _nowPlaying.value.contextUri.ifBlank { lastConfirmedContextUri }
+        val isListContext = ctx.isNotBlank() && !ctx.startsWith(SPOTIFY_TRACK_PREFIX) && !ctx.startsWith("spotify:ad:")
         val knownSongs = when {
-            ctx.isNotBlank() && contextSongs[ctx] != null -> contextSongs[ctx]
+            isListContext && contextSongs[ctx] != null -> contextSongs[ctx]
             ctx == LIKED_CONTEXT && com.music.spotui.data.api.Api.LikedCache.tracks != null -> com.music.spotui.data.api.Api.LikedCache.tracks
-            else -> boundState?.queue?.value?.takeIf { it.isNotEmpty() }
+            isListContext -> boundState?.queue?.value?.takeIf { list ->
+                list.isNotEmpty() && (curUri.isBlank() || list.any { s -> songUri(s) == curUri })
+            }
+            else -> null
         }
         val songsByUri = knownSongs?.mapNotNull { s -> songUri(s)?.let { u -> u to s } }?.toMap().orEmpty()
 
+        val standaloneNative = nativeControlsAccount() && !isListContext
         val alignedQueue: List<app.myspoti.api.NowPlaying> = apiQueue?.let { q ->
-            val all = q.queued + q.nextUp
+            val all = if (standaloneNative) q.queued else (q.queued + q.nextUp)
             when {
                 curUri.isBlank() -> all
                 q.current?.uri == curUri -> all
                 else -> {
                     val idx = all.indexOfFirst { it.uri == curUri }
-                    if (idx >= 0) all.drop(idx + 1) else emptyList()
+                    if (idx >= 0) all.drop(idx + 1) else if (standaloneNative) q.queued else emptyList()
                 }
             }
         } ?: _queue.value.let { eq ->
-            val all = (eq.queued + eq.nextUp).map { nowPlayingOf(it.song, it.provider.ifBlank { "context" }) }
+            val raw = if (standaloneNative) eq.queued else (eq.queued + eq.nextUp)
+            val all = raw.map { nowPlayingOf(it.song, it.provider.ifBlank { "context" }) }
             val curId = trackIdOf(curUri)
             when {
                 curUri.isBlank() -> all
                 eq.current?.spotifyTrackId == curId && curId.isNotBlank() -> all
                 else -> {
                     val idx = all.indexOfFirst { it.uri == curUri }
-                    if (idx >= 0) all.drop(idx + 1) else emptyList()
+                    if (idx >= 0) all.drop(idx + 1) else if (standaloneNative) all else emptyList()
                 }
             }
         }
 
-        val orderUris = if (ctx.isNotBlank()) playedOrder?.takeIf { it.first == ctx }?.second else null
+        val orderUris = if (isListContext) playedOrder?.takeIf { it.first == ctx }?.second else null
         val contextItems: List<app.myspoti.api.NowPlaying> = when {
             !orderUris.isNullOrEmpty() -> orderUris.mapNotNull { u ->
                 songsByUri[u]?.let { nowPlayingOf(it) }
@@ -1728,7 +1747,7 @@ object SongPlayer {
                     }
             }
             !knownSongs.isNullOrEmpty() -> knownSongs.map { nowPlayingOf(it) }
-            ctx.isNotBlank() && contextRows[ctx] != null -> contextRows[ctx]!!.mapNotNull { key ->
+            isListContext && contextRows[ctx] != null -> contextRows[ctx]!!.mapNotNull { key ->
                 val u = playKeyToUri(key) ?: return@mapNotNull null
                 songsByUri[u]?.let { nowPlayingOf(it) } ?: run {
                     val label = key.substringAfter('|', "")
@@ -2636,7 +2655,8 @@ object SongPlayer {
         // Reported (beta.9): each fast tap showed `nowPlaying.next` — the same second song every
         // time, held as pending, so the screen stayed on it for seconds while the page went on to
         // the fifth. A burst shows the song its taps add up to.
-        val n = burstUpcoming.getOrNull(burstTaps - 1)?.let(::songOf)?.takeIf { it.title.isNotBlank() }
+        val n = (if (burstTaps <= 1) _nowPlaying.value.next?.takeIf { it.title.isNotBlank() } else null)
+            ?: burstUpcoming.getOrNull(burstTaps - 1)?.let(::songOf)?.takeIf { it.title.isNotBlank() }
             ?: (if (burstTaps <= 1) _nowPlaying.value.next else null)
             ?: burstUpcoming.getOrNull(burstTaps - 1)?.let(::songOf)
         if (n == null || (lastSkippedFromUri != null && SPOTIFY_TRACK_PREFIX + n.spotifyTrackId == lastSkippedFromUri)) {

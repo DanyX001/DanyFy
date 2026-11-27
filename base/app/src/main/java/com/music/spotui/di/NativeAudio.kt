@@ -526,10 +526,19 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
         foreground()
         commandAtMs = System.currentTimeMillis()
         player?.fadeOutCurrent(120L)
-        val resolvedCtx = contextUri?.takeIf { it.isNotBlank() }
+        val rawCtx = contextUri?.takeIf { it.isNotBlank() }
             ?: e.now.value?.contextUri?.takeIf { it.isNotBlank() }
             ?: lastLocalPlay?.contextUri?.takeIf { it.isNotBlank() }
-        val idx = if (resolvedCtx != null && order.isNullOrEmpty()) SongPlayer.contextTrackIndex(resolvedCtx, trackUri, order) else null
+        val resolvedCtx = if (rawCtx != null && rawCtx.startsWith("spotify:track:") && rawCtx != trackUri && (provider == "autoplay" || steps == null || steps > 1)) {
+            trackUri
+        } else {
+            rawCtx
+        }
+        val idx = if (resolvedCtx != null && !resolvedCtx.startsWith("spotify:track:") && order.isNullOrEmpty()) {
+            SongPlayer.contextTrackIndex(resolvedCtx, trackUri, order)
+        } else {
+            null
+        }
         val prev = lastLocalPlay
         if (resolvedCtx != null) {
             lastLocalPlay = AdRecoveryTarget(
@@ -643,18 +652,25 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
             adRecoveryTimes.addLast(now)
             lastAdRecoveryAtMs = now
             log("recycling native device after ad ($reason) -> ${target?.trackUri ?: target?.contextUri ?: "no target"}")
+            var toClose: NativeEngine? = null
+            var toRelease: Media3DrmPlayer? = null
             lock.withLock {
                 val active = engine
                 if (active != null && (failed == null || active === failed)) {
-                    runCatching { withTimeoutOrNull(2_000L) { active.close() } }
-                    player?.release()
+                    toClose = active
+                    toRelease = player
                     engine = null
                     player = null
                     _current.value = null
                 }
             }
+            if (toClose != null || toRelease != null) {
+                scope.launch {
+                    runCatching { withTimeoutOrNull(1_500L) { toClose?.close() } }
+                    toRelease?.release()
+                }
+            }
             if (target?.contextUri == null) return@withLock false
-            delay(250L)
             return@withLock runCatching {
                 val fresh = started(Graph.app, forceL3 = false)
                 foreground()

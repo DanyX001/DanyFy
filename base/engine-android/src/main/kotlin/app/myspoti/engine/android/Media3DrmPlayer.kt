@@ -317,6 +317,7 @@ class Media3DrmPlayer(
     private val loadsPending = AtomicInteger(0)
     private val loadGen = AtomicInteger(0)
     private val preloadGen = AtomicInteger(0)
+    @Volatile private var preloadFileId: String? = null
     private val activeLicenceJob = AtomicReference<LicenceJob?>(null)
     private val activeCertJob = AtomicReference<Job?>(null)
     @Volatile private var pendingLicenceFileId: String? = null
@@ -356,7 +357,9 @@ class Media3DrmPlayer(
     ) {
         if (released) return
         val gen = loadGen.incrementAndGet()
-        preloadGen.incrementAndGet()
+        if (preloadFileId != media.fileId) {
+            preloadGen.incrementAndGet()
+        }
         loadsPending.incrementAndGet()
         val pendingDec = AtomicBoolean(true)
         activeCertJob.getAndSet(null)?.cancel()
@@ -525,6 +528,7 @@ class Media3DrmPlayer(
 
     override fun preload(media: PlayableMedia, licence: LicenceChannel) {
         if (released) return
+        preloadFileId = media.fileId
         val pGen = preloadGen.incrementAndGet()
         this.licence = licence
         scope.launch {
@@ -559,6 +563,9 @@ class Media3DrmPlayer(
             if (released || pGen != preloadGen.get()) {
                 dropIfUnused()
                 return@launch
+            }
+            if (item.peekInit() == null) {
+                runCatching { withTimeoutOrNull(1_500L) { item.awaitInit() } }
             }
             val pssh = item.peekInit()?.let(::widevinePssh) ?: media.widevinePssh
             if (pssh == null) return@launch log("preload ${media.trackUri}: no pssh, licence at load")

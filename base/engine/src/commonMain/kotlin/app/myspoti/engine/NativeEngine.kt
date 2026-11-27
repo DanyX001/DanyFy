@@ -165,8 +165,12 @@ class NativeEngine(
                 ?.takeIf { !isAdTrack(it.nextTrack, it.nextState) }
                 ?: resolveTargetLocked(sm, st.transitions.skipNext)
                     ?.takeIf { !isAdTrack(it.nextTrack, it.nextState) }
-                ?: resolveTargetLocked(sm, st.transitions.showNext)
-                    ?.takeIf { !isAdTrack(it.nextTrack, it.nextState) }
+                ?: if (cursor == startIdx) {
+                    resolveTargetLocked(sm, st.transitions.showNext)
+                        ?.takeIf { !isAdTrack(it.nextTrack, it.nextState) }
+                } else {
+                    null
+                }
             if (target != null) {
                 val uri = target.nextTrack.metadata.uri
                 if (uri.isNotBlank() && !uri.startsWith("spotify:ad:") && seenUris.add(uri)) {
@@ -176,7 +180,7 @@ class NativeEngine(
             } else {
                 val rawNext = st.transitions.advance?.stateIndex
                     ?: st.transitions.skipNext?.stateIndex
-                    ?: st.transitions.showNext?.stateIndex
+                    ?: (if (cursor == startIdx) st.transitions.showNext?.stateIndex else null)
                     ?: break
                 cursor = rawNext
             }
@@ -886,11 +890,15 @@ class NativeEngine(
             activeEventHttpJob?.cancel()
         }
 
-        ackCommand(ackCmd, tolerateFailure = mySeq != null)
+        if (mySeq != null) {
+            ackCmd?.let { cmdToAck -> scope.launch { ackCommand(cmdToAck, tolerateFailure = true) } }
+        } else {
+            ackCommand(ackCmd, tolerateFailure = false)
+        }
         if (stateClear) {
             reportLock.withLock {
                 outgoing?.let {
-                    finalizeSafe(it, "remote", null, keepMachine = false)
+                    finalizeSafe(it, "remote", null, keepMachine = false, machineId = prevMachine?.id)
                     player.stop()
                 }
                 if (stateLock.withLock { trackGeneration == gen }) {
@@ -916,7 +924,11 @@ class NativeEngine(
         try {
             // The song going out is finalized in the machine it played in, before the new one is taken.
             // A track skipped before it ever started playing has nothing to finalize (Spotify rejects pos=0 with 400).
-            outgoing?.takeIf { it.started || it.msPlayed > 0L }?.let { reportLock.withLock { finalizeSafe(it, "remote", state.id, keepMachine = true) } }
+            outgoing?.takeIf { it.started || it.msPlayed > 0L }?.let {
+                reportLock.withLock {
+                    finalizeSafe(it, "remote", state.id, keepMachine = true, machineId = prevMachine?.id ?: machine?.id)
+                }
+            }
             if (mySeq != null && mySeq != latestReplaceSeq) return
 
             if (isAdTrack(track, state)) {
@@ -996,9 +1008,7 @@ class NativeEngine(
                 cur.wantPaused = paused
                 acted = true
             }
-            if (acted) {
-                publishNow(cur, cur.pendingSeekMs ?: cur.lastPosition, false, buffering = !cur.wantPaused)
-            }
+            publishNow(cur, cur.pendingSeekMs ?: cur.lastPosition, false, buffering = !cur.wantPaused)
         } else {
             if (seekTo != null) {
                 cur.pending = Playback.Pending.Seek(cur.lastPosition)
@@ -1013,6 +1023,7 @@ class NativeEngine(
                 if (paused) player.pause() else player.resume()
                 acted = true
             }
+            publishNow(cur, cur.pendingSeekMs ?: cur.lastPosition, cur.playing && !cur.wantPaused, buffering = !cur.playing && !cur.wantPaused)
         }
         return acted
     }
@@ -1036,8 +1047,14 @@ class NativeEngine(
         scope.launch { runCatchingNonCancel { command("skip_next") }.onFailure { emit(EngineEvent.Failure("ad not passed: ${it.message}")) } }
     }
 
-    private suspend fun finalizeSafe(p: Playback, reasonEnd: String, nextPlaybackId: String?, keepMachine: Boolean) {
-        runCatchingNonCancel { finalize(p, reasonEnd, nextPlaybackId, keepMachine = keepMachine) }
+    private suspend fun finalizeSafe(
+        p: Playback,
+        reasonEnd: String,
+        nextPlaybackId: String?,
+        keepMachine: Boolean,
+        machineId: String? = machine?.id,
+    ) {
+        runCatchingNonCancel { finalize(p, reasonEnd, nextPlaybackId, keepMachine = keepMachine, machineId = machineId) }
             .onFailure { emit(EngineEvent.Failure("finalize of ${p.track.metadata.uri}: ${it.message}")) }
     }
 
@@ -1160,12 +1177,6 @@ class NativeEngine(
                 }
                 if (!stillCurrent) return
                 putState(p, "before_track_load", position, previousPosition, speed = 0, expectedGen = loadGen)
-                val start = listOf(Bodies.melodyMessage("jssdk_playback_start", Reports.playbackStart(p, sessionId)))
-                if (tolerateMelodyFailure) {
-                    runCatchingNonCancel { melody(start, "harmony:${config.sdkVersion}") }
-                } else {
-                    melody(start, "harmony:${config.sdkVersion}")
-                }
                 var startAt = position
                 var playNow = !paused
                 val launchLoad = stateLock.withLock {
@@ -1194,6 +1205,12 @@ class NativeEngine(
                     } else {
                         player.load(media, startAt, playNow, licences.channel())
                     }
+                }
+                val start = listOf(Bodies.melodyMessage("jssdk_playback_start", Reports.playbackStart(p, sessionId)))
+                if (tolerateMelodyFailure) {
+                    runCatchingNonCancel { melody(start, "harmony:${config.sdkVersion}") }
+                } else {
+                    melody(start, "harmony:${config.sdkVersion}")
                 }
             }
         } catch (t: Throwable) {
@@ -1227,7 +1244,14 @@ class NativeEngine(
      * the same `state_machine_id`, i.e. without waiting for its answer, and later reports used the
      * answer to `before_track_load` (end-of-track, 2026-11-10). [keepMachine] does the same.
      */
-    private suspend fun finalize(p: Playback, reasonEnd: String, nextPlaybackId: String?, putPosition: Long = p.lastPosition, keepMachine: Boolean = false) {
+    private suspend fun finalize(
+        p: Playback,
+        reasonEnd: String,
+        nextPlaybackId: String?,
+        putPosition: Long = p.lastPosition,
+        keepMachine: Boolean = false,
+        machineId: String? = machine?.id,
+    ) {
         val m = player.metrics()
         val now = env.nowMs()
         val gen = stateLock.withLock {
@@ -1244,7 +1268,7 @@ class NativeEngine(
         putState(
             p, "track_data_finalized", putPosition, putPosition,
             stats = Reports.finalizedStats(p, m, licences.lastLicenceLatencyMs, now, config.playbackStrategy),
-            duration = p.fileDurationMs, applyAnswer = !keepMachine, expectedGen = gen,
+            duration = p.fileDurationMs, applyAnswer = !keepMachine, expectedGen = gen, machineId = machineId,
         )
     }
 
@@ -1912,12 +1936,12 @@ class NativeEngine(
     private suspend fun putState(
         p: Playback, debugSource: String, position: Long, previousPosition: Long?, speed: Int? = null,
         stats: JsonObject? = null, duration: Long = p.durationMs, applyAnswer: Boolean = true,
-        expectedGen: Long? = null,
+        expectedGen: Long? = null, machineId: String? = machine?.id,
     ) {
         val s = speed ?: if (p.wantPaused) 0 else 1
         val sentWall = env.nowMs()
         val sub = Bodies.SubState(s, position, duration, p.file.bitrate, p.file.format, p.file.audioQuality)
-        putState(machine?.id, p.stateId, p.wantPaused, sub, previousPosition, debugSource, stats, applyAnswer, expectedGen)
+        putState(machineId, p.stateId, p.wantPaused, sub, previousPosition, debugSource, stats, applyAnswer, expectedGen)
         if (debugSource != "track_data_finalized") {
             p.lastReportedPosMs = position
             p.lastReportedWallMs = sentWall
@@ -1970,6 +1994,16 @@ class NativeEngine(
                         }
                     }
                 }
+            }
+            current?.takeIf { it.stateId == stateId }?.let { cur ->
+                val liveNow = _now.value
+                val livePos = if (cur.playing && !cur.playerPaused && liveNow != null && liveNow.uri == cur.track.metadata.uri) {
+                    (liveNow.positionMs + (env.nowMs() - liveNow.atMs).coerceAtLeast(0L))
+                        .coerceIn(cur.lastPosition, cur.durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
+                } else {
+                    cur.pendingSeekMs ?: cur.lastPosition
+                }
+                publishNow(cur, livePos, cur.playing && !cur.wantPaused, buffering = !cur.playing && !cur.wantPaused)
             }
         }
     }

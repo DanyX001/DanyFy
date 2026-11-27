@@ -95,13 +95,29 @@ internal class CdnItem(val media: PlayableMedia, private val http: Http, private
         return if (i >= 0 && i + 1 < bounds.size - 1) bounds[i + 1] else null
     }
 
+    /** Awaits only the init chunk (0..firstSegmentOffset) without removing it from [ready], so PSSH extraction reads the exact MP4 moov box. */
+    suspend fun awaitInit(): ByteArray? {
+        if (cancelled || length == C.LENGTH_UNSET.toLong() || bounds.size < 2) return null
+        ready[0L]?.let { return it }
+        enqueueLookahead(0L)
+        val bytes = inFlight[0L]?.await() ?: ready[0L]
+        return bytes?.takeIf { it.isNotEmpty() } ?: ready[0L]?.takeIf { it.isNotEmpty() }
+    }
+
     /** The init chunk and the first segment, for a switch that starts without a network round trip. */
     suspend fun prefetch() {
         if (cancelled || length == C.LENGTH_UNSET.toLong()) return
-        for (start in bounds.take(minOf(2, bounds.size - 1))) {
+        val targets = bounds.take(minOf(2, bounds.size - 1))
+        for (start in targets) {
+            enqueueLookahead(start)
+        }
+        for (start in targets) {
             if (cancelled) throw CancellationException("cdn item cancelled")
             if (ready.containsKey(start)) continue
-            ready[start] = fetch(chunkAt(start), prefetch = true)
+            val bytes = inFlight[start]?.await()
+            if ((bytes == null || bytes.isEmpty()) && !ready.containsKey(start)) {
+                ready[start] = fetch(chunkAt(start), prefetch = true)
+            }
         }
     }
 
