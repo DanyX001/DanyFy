@@ -103,11 +103,7 @@ object SupportReminder {
         icon = Accent.entries.firstOrNull { it.key == p.getString("icon", "green") } ?: Accent.GREEN
     }
 
-    fun isDue(context: Context, now: Long = System.currentTimeMillis()): Boolean {
-        val p = prefs(context)
-        val firstSeen = p.getLong("first_seen", 0L).takeIf { it > 0 } ?: now.also { p.edit().putLong("first_seen", it).apply() }
-        return now >= nextAt(firstSeen, p.getLong("last_shown", 0L), level, p.getLong("supported_at", 0L))
-    }
+    fun isDue(context: Context, now: Long = System.currentTimeMillis()): Boolean = false
 
     /** The reminder was answered (Ko-fi opened or "no thanks"). */
     fun shown(context: Context) = prefs(context).edit().putLong("last_shown", System.currentTimeMillis()).apply()

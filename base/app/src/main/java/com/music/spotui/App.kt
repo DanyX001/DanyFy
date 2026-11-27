@@ -50,7 +50,6 @@ fun App() {
     LaunchedEffect(Unit) { com.music.spotui.ui.components.DownloadAsk.openRoute.collect { r -> runCatching { navController.navigateSingleTop(r) } } }
 
     UpdatePrompt()
-    SupportPrompt()
     // The playlists at the top of the library, fetched ahead on Wi-Fi (see PagePrefetch).
     LaunchedEffect(Unit) { com.music.spotui.data.api.PagePrefetch.start() }
 

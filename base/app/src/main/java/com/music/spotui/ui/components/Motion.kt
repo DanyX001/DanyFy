@@ -88,7 +88,8 @@ fun Modifier.pressScale(source: MutableInteractionSource, pressedScale: Float = 
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(
         if (pressed) pressedScale else 1f,
-        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        if (pressed) spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 1800f)
+        else spring(dampingRatio = 0.65f, stiffness = 750f),
         label = "press",
     )
     graphicsLayer { scaleX = scale; scaleY = scale }
@@ -100,8 +101,8 @@ fun Modifier.pressScale(source: MutableInteractionSource, pressedScale: Float = 
  * a colour or glyph changing state, and content arriving in place of its placeholder.
  */
 object Motion {
-    const val FADE_MS = 150
-    const val CONTENT_MS = 220
+    const val FADE_MS = 120
+    const val CONTENT_MS = 170
 }
 
 /**

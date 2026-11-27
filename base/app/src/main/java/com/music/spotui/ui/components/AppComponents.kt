@@ -111,7 +111,7 @@ fun Loader(kind: SkeletonKind = SkeletonKind.List) {
 @Composable
 private fun placeholderAlpha(): androidx.compose.runtime.State<Float> {
     var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { delay(200); visible = true }
+    LaunchedEffect(Unit) { delay(90); visible = true }
     val reduce = com.music.spotui.ui.look.rememberReduceMotion()
     return androidx.compose.animation.core.animateFloatAsState(
         if (visible) 1f else 0f,
@@ -355,7 +355,7 @@ fun MiniPlayer() {
                 // Devices, the + and play / pause answer in 44 dp squares around their glyphs (22, 24
                 // and 26 dp were the whole target); 48 dp does not fit between their centres, 43-45 dp
                 // apart. The gaps and the end padding give back the difference: the glyphs stay put.
-                modifier = Modifier.size(MINI_TOUCH).pressable(0.96f) { showDevices = true }
+                modifier = Modifier.size(MINI_TOUCH).pressable(0.96f) { com.music.spotui.di.Haptics.click(); showDevices = true }
                     .wrapContentSize()
                     .size(22.dp)
                     ,
@@ -368,6 +368,7 @@ fun MiniPlayer() {
                 contentDescription = if (songPlayingState) stringResource(R.string.content_description_pause_button) else stringResource(R.string.content_description_play_button),
                 tint = Color.White,
                 modifier = Modifier.size(MINI_TOUCH).pressable(0.96f) {
+                        com.music.spotui.di.Haptics.click()
                         if (songPlayingState) {
                             SongPlayer.pause()
                             vm.updateSongState(songCoverUri, songTitle, songSinger, false, songId, vm.currentSongIndex.value, vm.currentSongAlbum.value)

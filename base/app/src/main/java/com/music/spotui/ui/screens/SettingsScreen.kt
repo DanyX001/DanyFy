@@ -1208,7 +1208,10 @@ internal fun OptionRow(label: String, detail: String, checked: Boolean,
     enabled: Boolean = true, onChecked: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp)
-            .toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChecked)
+            .toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = {
+                com.music.spotui.di.Haptics.toggle(it)
+                onChecked(it)
+            })
             .padding(horizontal = 20.dp, vertical = 10.dp)) {
         androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
             Text(label, color = AppText, fontSize = 16.sp)
@@ -1232,7 +1235,11 @@ private fun AboutRow() {
     val known = live ?: remember { com.music.spotui.data.api.UpdateChecker.known(ctx) }
     Row(
         Modifier.fillMaxWidth()
-            .then(if (known != null) Modifier.clickable { com.music.spotui.updateRelease.value = known } else Modifier)
+            .clickable {
+                com.music.spotui.di.Haptics.click()
+                if (known != null) com.music.spotui.updateRelease.value = known
+                else scope.launch { check.run() }
+            }
             .padding(start = 20.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1249,10 +1256,10 @@ private fun AboutRow() {
             Text(check.lastCheckedText, color = AppMuted, fontSize = 12.sp)
         }
         if (check.checking) {
-            androidx.compose.material3.CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp, color = AppMuted)
+            androidx.compose.material3.CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp, color = com.music.spotui.ui.theme.AppAccent)
         } else {
-            androidx.compose.material3.IconButton(onClick = { scope.launch { check.run() } }) {
-                androidx.compose.material3.Icon(Icons.Default.Refresh, stringResource(R.string.settings_update_refresh), tint = AppMuted)
+            androidx.compose.material3.IconButton(onClick = { com.music.spotui.di.Haptics.click(); scope.launch { check.run() } }) {
+                androidx.compose.material3.Icon(Icons.Default.Refresh, stringResource(R.string.settings_update_refresh), tint = com.music.spotui.ui.theme.AppAccent)
             }
         }
     }

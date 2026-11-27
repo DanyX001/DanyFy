@@ -15,7 +15,11 @@ object Haptics {
         val v = view?.get() ?: return
         // Only while the app is in front (no buzz for notification / headset commands).
         if (v.windowVisibility != View.VISIBLE || !v.hasWindowFocus()) return
-        v.post { if (!v.performHapticFeedback(constant)) v.performHapticFeedback(fallback) }
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            if (!v.performHapticFeedback(constant)) v.performHapticFeedback(fallback)
+        } else {
+            v.post { if (!v.performHapticFeedback(constant)) v.performHapticFeedback(fallback) }
+        }
     }
 
     /** Buttons: play/pause, next/previous, add to queue. */

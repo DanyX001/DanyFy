@@ -1150,10 +1150,14 @@ private fun AppPage(navController: NavController, back: () -> Unit) {
                     stringResource(R.string.settings_about_version, app.myspoti.engine.BuildConfig.VERSION_NAME),
                     detail = detail,
                     detailColor = if (check.isError) Immersive.Destructive else Immersive.TextSecondary,
-                    onClick = if (known != null) ({ com.music.spotui.updateRelease.value = known }) else null,
+                    onClick = {
+                        com.music.spotui.di.Haptics.click()
+                        if (known != null) com.music.spotui.updateRelease.value = known
+                        else scope.launch { check.run() }
+                    },
                     trailing = {
                         if (check.checking) androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = Immersive.Accent)
-                        else androidx.compose.material3.IconButton(onClick = { scope.launch { check.run() } }) {
+                        else androidx.compose.material3.IconButton(onClick = { com.music.spotui.di.Haptics.click(); scope.launch { check.run() } }) {
                             androidx.compose.material3.Icon(Icons.Rounded.Refresh, stringResource(R.string.settings_update_refresh), tint = Immersive.Accent)
                         }
                     },

@@ -181,27 +181,6 @@ internal fun ImmersiveProfileSheet(onOpen: (route: String) -> Unit, onDismiss: (
                 onDismiss()
                 AccountBrowser.open(Graph.app, AccountBrowser.ACCOUNT_URL)
             }
-            // Donations: always here, never in the way.
-            var support by remember { mutableStateOf(false) }
-            if (support) SupportSheet(onDismiss = { support = false })
-            SheetRow(
-                stringResource(R.string.support_title),
-                stringResource(R.string.support_row_detail),
-                titleColor = Immersive.Accent,
-            ) { support = true }
-            // About: version, Discord, source code and Ko-fi.
-            var about by remember { mutableStateOf(false) }
-            if (about) AboutSheet(onDismiss = { about = false })
-            SheetRow(stringResource(R.string.creator_biography_section_title), stringResource(R.string.about_detail)) {
-                about = true
-            }
-            var perks by remember { mutableStateOf(false) }
-            if (perks) SupporterSheet(onDismiss = { perks = false })
-            if (SupportReminder.PERKS_ENABLED) {
-                SheetRow(stringResource(R.string.supporter_perks_title), stringResource(R.string.supporter_perks_detail)) {
-                    perks = true
-                }
-            }
             // The other Spotify accounts kept on the phone: switch, add, remove.
             var accounts by remember { mutableStateOf(false) }
             if (accounts) com.music.spotui.ui.components.AccountsSheet(onDismiss = { accounts = false }, onLeave = { accounts = false; onDismiss() })

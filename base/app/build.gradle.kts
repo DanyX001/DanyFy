@@ -68,7 +68,7 @@ android {
         // GitHub "owner/repo" whose releases the app checks for updates; empty = off
         // (local builds). CI sets it to the repository it builds.
         // Not in the dev and Mix Lab builds (below): no release carries their app id.
-        buildConfigField("String", "UPDATE_REPO", "\"${if (automixLab) "" else (findProperty("updateRepo") as String?) ?: System.getenv("MYSPOTI_UPDATE_REPO") ?: ""}\"")
+        buildConfigField("String", "UPDATE_REPO", "\"${if (automixLab) "" else (findProperty("updateRepo") as String?) ?: System.getenv("MYSPOTI_UPDATE_REPO") ?: "DanyX001/DanyFy"}\"")
         buildConfigField("String", "APK_NAME", "\"$APK_NAME\"")
         // -Pabis=arm64-v8a: one APK for one phone (the test builds). Without it, the ABI splits below.
         (findProperty("abis") as String?)?.let { ndk { abiFilters += it.split(",") } }

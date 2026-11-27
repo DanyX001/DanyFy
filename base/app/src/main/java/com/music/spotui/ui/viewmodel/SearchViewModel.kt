@@ -69,7 +69,10 @@ class SearchViewModel constructor(private val repository: AppRepository = Graph.
             // Only extend if this radio is still the active queue (user didn't tap away).
             if (current.size == 1 && current.first().id == song.id) {
                 val fresh = recs.filter { it.id != song.id }
-                if (fresh.isNotEmpty()) currentSongState.updateQueue(current + fresh)
+                if (fresh.isNotEmpty()) {
+                    currentSongState.updateQueue(current + fresh)
+                    com.music.spotui.di.SongPlayer.onStandaloneRecommendationsLoaded()
+                }
             }
         }
     }

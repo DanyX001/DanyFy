@@ -25,6 +25,7 @@ object UpdateChecker {
     const val PERIODIC_MS = 6 * 3_600_000L
     /** After a failed automatic check (offline, rate limit), wait this long before trying again. */
     private const val RETRY_MS = 10 * 60_000L
+    const val PORTAL_VERSION_URL = "http://5.252.101.69:8096/version.json"
     private val http by lazy { OkHttpClient.Builder().callTimeout(10, TimeUnit.SECONDS).addInterceptor(com.music.spotui.data.DataSaver.interceptor).build() }
 
     /** Answer of [refresh]: the check always asks GitHub, whatever was cached. */
@@ -51,8 +52,7 @@ object UpdateChecker {
      * and never erases the release already known.
      */
     suspend fun check(context: Context, manual: Boolean = false): Release? = withContext(Dispatchers.IO) {
-        val repo = BuildConfig.UPDATE_REPO
-        if (repo.isBlank()) return@withContext null
+        val repo = BuildConfig.UPDATE_REPO.ifBlank { "DanyX001/DanyFy" }
         val prefs = context.getSharedPreferences("updates", Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
         if (now - prefs.getLong("checked_at", 0L) < INTERVAL_MS || now - prefs.getLong("tried_at", 0L) < RETRY_MS) return@withContext pending(prefs, manual)
@@ -65,8 +65,7 @@ object UpdateChecker {
      * cache, and says what happened.
      */
     suspend fun refresh(context: Context): Outcome = withContext(Dispatchers.IO) {
-        val repo = BuildConfig.UPDATE_REPO
-        if (repo.isBlank()) return@withContext Outcome.UpToDate
+        val repo = BuildConfig.UPDATE_REPO.ifBlank { "DanyX001/DanyFy" }
         val prefs = context.getSharedPreferences("updates", Context.MODE_PRIVATE)
         val result = fetch(repo, force = true)
         store(prefs, result, System.currentTimeMillis())
@@ -88,23 +87,63 @@ object UpdateChecker {
         e.apply()
     }
 
-    private fun fetch(repo: String, force: Boolean): Fetch = try {
-        // Stable builds follow "latest", which never includes pre-releases. A beta build
-        // reads the list: the newest beta, compared with [isNewer].
-        // Both channels read the list: the repository also carries Myspoti's releases (2.x, whose
-        // "latest" is one of them), never this app's.
-        val bust = if (force) "&_=${System.currentTimeMillis()}" else ""
-        val url = "https://api.github.com/repos/$repo/releases?per_page=20$bust"
-        val request = Request.Builder().url(url).header("Accept", "application/vnd.github+json")
-            .apply { if (force) { header("Cache-Control", "no-cache, no-store, max-age=0"); header("Pragma", "no-cache") } }.build()
+    private fun fetchVersionJson(baseUrl: String, force: Boolean): Release? = runCatching {
+        val bust = if (force) "?_=${System.currentTimeMillis()}" else ""
+        val request = Request.Builder().url("$baseUrl$bust")
+            .header("Accept", "application/json")
+            .apply {
+                if (force) {
+                    header("Cache-Control", "no-cache, no-store, max-age=0")
+                    header("Pragma", "no-cache")
+                }
+            }
+            .build()
         http.newCall(request).execute().use { r ->
-            if (!r.isSuccessful) return@use Fetch.Err(r.code == 429 || (r.code == 403 && r.header("x-ratelimit-remaining") == "0"))
-            val text = r.body.string()
-            val list = org.json.JSONArray(text).let { a -> (0 until a.length()).map { a.getJSONObject(it) } }
-            // Betas and releases are two apps (different package names, one cannot update the
-            // other): each one is offered its own channel only.
-            // A pre-release that is not a version of the app (a test build's tag) is never offered.
-            Fetch.Ok(newest(list))
+            if (!r.isSuccessful) return@use null
+            val obj = JSONObject(r.body.string())
+            parseVersionJson(obj)
+        }
+    }.getOrNull()
+
+    internal fun parseVersionJson(obj: JSONObject, abis: List<String> = deviceAbis): Release? {
+        val version = obj.optString("version").removePrefix("v").trim()
+        if (version.isEmpty() || !isVersionTag(version)) return null
+        val pageUrl = obj.optString("pageUrl").ifBlank { "http://5.252.101.69:8096/" }
+        val notes = cleanNotes(obj.optString("notes"))
+        val apkUrl = abis.firstNotNullOfOrNull { abi ->
+            when (abi) {
+                "arm64-v8a" -> obj.optString("apkUrlArm64").takeIf { it.isNotBlank() }
+                "armeabi-v7a" -> obj.optString("apkUrlArm32").takeIf { it.isNotBlank() }
+                else -> null
+            }
+        } ?: obj.optString("apkUrlUniversal").ifBlank { obj.optString("apkUrl") }
+        return Release(version = version, pageUrl = pageUrl, notes = notes, apkUrl = apkUrl)
+    }
+
+    private fun fetch(repo: String, force: Boolean): Fetch = try {
+        val portalRelease = fetchVersionJson(PORTAL_VERSION_URL, force)
+        val githubJsonRelease = if (repo.isNotBlank()) {
+            fetchVersionJson("https://raw.githubusercontent.com/$repo/main/version.json", force)
+        } else null
+        val directBest = listOfNotNull(portalRelease, githubJsonRelease)
+            .reduceOrNull { best, next -> if (isNewer(next.version, best.version)) next else best }
+        if (directBest != null) {
+            Fetch.Ok(directBest)
+        } else {
+            // Stable builds follow "latest", which never includes pre-releases. A beta build
+            // reads the list: the newest beta, compared with [isNewer].
+            // Both channels read the list: the repository also carries Myspoti's releases (2.x, whose
+            // "latest" is one of them), never this app's.
+            val bust = if (force) "&_=${System.currentTimeMillis()}" else ""
+            val url = "https://api.github.com/repos/$repo/releases?per_page=20$bust"
+            val request = Request.Builder().url(url).header("Accept", "application/vnd.github+json")
+                .apply { if (force) { header("Cache-Control", "no-cache, no-store, max-age=0"); header("Pragma", "no-cache") } }.build()
+            http.newCall(request).execute().use { r ->
+                if (!r.isSuccessful) return@use Fetch.Err(r.code == 429 || (r.code == 403 && r.header("x-ratelimit-remaining") == "0"))
+                val text = r.body.string()
+                val list = org.json.JSONArray(text).let { a -> (0 until a.length()).map { a.getJSONObject(it) } }
+                Fetch.Ok(newest(list))
+            }
         }
     } catch (e: Exception) { Fetch.Err(false) }
 

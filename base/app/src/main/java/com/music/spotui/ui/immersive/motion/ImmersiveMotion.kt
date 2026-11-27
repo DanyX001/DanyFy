@@ -39,28 +39,28 @@ object ImmersiveMotion {
      * moves on a finger uses a spring, everything that fades uses these. Screens pick from here
      * instead of writing their own numbers.
      */
-    const val FADE_MS = 150
-    const val MEDIUM_MS = 320
-    const val LONG_MS = 420
-    const val TINT_MS = 600
+    const val FADE_MS = 120
+    const val MEDIUM_MS = 240
+    const val LONG_MS = 320
+    const val TINT_MS = 450
 
     /** A sheet warming into its cover's colours the first time it is seen: quicker than the player's [TINT_MS], as a sheet is brief. */
-    const val SHEET_TINT_MS = 400
+    const val SHEET_TINT_MS = 300
 
     /** Press feedback (scale under the finger): stiff and fully damped, it never wobbles. */
-    fun <T> pressSpring() = spring<T>(stiffness = 900f)
+    fun <T> pressSpring() = spring<T>(stiffness = 1800f)
 
     /**
      * Glass objects that travel (the tab selection pill, a lens): one soft pass beyond the mark,
      * then settled. Damping 0.72, stiffness 320.
      */
-    fun <T> glassSpring() = spring<T>(dampingRatio = 0.72f, stiffness = 320f)
+    fun <T> glassSpring() = spring<T>(dampingRatio = 0.72f, stiffness = 380f)
 
     /** Release of a glass surface after a press: a touch of overshoot. */
-    fun <T> releaseSpring() = spring<T>(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium)
+    fun <T> releaseSpring() = spring<T>(dampingRatio = 0.65f, stiffness = 750f)
 
     /** Content that resizes inside a floating container (controls opening in a pill). */
-    fun <T> sizeSpring() = spring<T>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+    fun <T> sizeSpring() = spring<T>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
 
     /**
      * The full player rising from the mini player and going back: critically damped with a long
@@ -68,10 +68,10 @@ object ImmersiveMotion {
      */
     fun slideSpring(reduce: Boolean = false): androidx.compose.animation.core.AnimationSpec<Float> =
         if (reduce) androidx.compose.animation.core.snap()
-        else spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 195f, visibilityThreshold = 0.5f)
+        else spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 340f, visibilityThreshold = 0.5f)
 
     /** A page pushed or popped by the nav host. */
-    private const val PAGE_MS = 380
+    private const val PAGE_MS = 260
 
     /**
      * Enter/exit specs for `NavHost` in the Immersive look. Switching between the three tabs is

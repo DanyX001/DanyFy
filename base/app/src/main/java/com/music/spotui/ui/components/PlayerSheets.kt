@@ -625,9 +625,12 @@ fun QueueSheet(contextName: String, onDismiss: () -> Unit) {
                                 contentAlignment = Alignment.Center,
                                 modifier = Modifier
                                     .size(36.dp)
+                                    .pressable(0.92f) {
+                                        com.music.spotui.di.Haptics.click()
+                                        if (playing) SongPlayer.pause() else SongPlayer.play()
+                                    }
                                     .clip(CircleShape)
-                                    .background(AppText)
-                                    .clickable { if (playing) SongPlayer.pause() else SongPlayer.play() },
+                                    .background(AppText),
                             ) {
                                 Icon(
                                     if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -645,13 +648,16 @@ fun QueueSheet(contextName: String, onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
                 QueueAction(Icons.Default.Shuffle, stringResource(R.string.play_mode_item_shuffle_title), shuffle, Modifier.weight(1f)) {
+                    com.music.spotui.di.Haptics.toggle(!shuffle)
                     SongPlayer.setShuffle(!shuffle); state.shuffle.value = !shuffle
                 }
                 val mode = SongPlayer.repeatMode.value
                 QueueAction(when (mode) { 2 -> Icons.Default.RepeatOne; 3 -> RepeatIcons.once; else -> Icons.Default.Repeat }, stringResource(R.string.np_content_desc_repeat), mode != 0, Modifier.weight(1f)) {
+                    com.music.spotui.di.Haptics.click()
                     SongPlayer.cycleRepeat()
                 }
                 QueueAction(Icons.Outlined.Timer, stringResource(R.string.np_content_desc_sleep_timer), SongPlayer.sleepEndsAt.value != null, Modifier.weight(1f)) {
+                    com.music.spotui.di.Haptics.click()
                     showTimer = true
                 }
             }
@@ -665,9 +671,12 @@ private fun PillButton(label: String, onClick: () -> Unit) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
+            .pressable(0.95f) {
+                com.music.spotui.di.Haptics.click()
+                onClick()
+            }
             .clip(RoundedCornerShape(50))
             .background(bg)
-            .clickable(onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 8.dp),
     ) { Text(label, color = AppText, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
 }
@@ -993,7 +1002,12 @@ private fun QueueList(
                                             }
                                         },
                                 )
-                            }, onClick = { if (!editing) SongPlayer.skipTo(item) })
+                            }, onClick = {
+                                if (!editing) {
+                                    com.music.spotui.di.Haptics.click()
+                                    SongPlayer.skipTo(item)
+                                }
+                            })
                         }
                     }
                 }
