@@ -157,4 +157,17 @@ class AdRecoveryPolicyTest {
         assertEquals("spotify:playlist:P1", target.contextUri)
         assertNull(target.trackUri)
     }
+
+    @Test
+    fun standaloneTrackNaturalEndAdBreakAdvancesToNextRadioTrackStandalone() {
+        val target = AdRecoveryPolicy.pickRecoveryTarget(
+            hintCtx = "spotify:track:tATuEnded",
+            hintTrack = null,
+            appTarget = AdRecoveryTarget(contextUri = "spotify:track:radioNext1", trackUri = null, shuffle = false),
+            lastPlayed = AdRecoveryTarget(contextUri = "spotify:track:tATuEnded", trackUri = "spotify:track:tATuEnded", shuffle = false),
+            hintCurrentTrack = "spotify:track:tATuEnded",
+        )!!
+        assertEquals("spotify:track:radioNext1", target.contextUri)
+        assertNull(target.trackUri)
+    }
 }

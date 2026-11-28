@@ -208,7 +208,7 @@ private fun SettingsRoot(navController: NavController, open: (SettingsPage) -> U
         immersiveGroup("music") {
             row {
                 ImmersiveGroupRow(
-                    stringResource(R.string.accounts_title), detail = com.music.spotui.ui.components.switchAccountDetail(),
+                    stringResource(R.string.accounts_title), detail = com.music.spotui.ui.components.currentAccountDetail(),
                     icon = Icons.Rounded.Person, chevron = true, onClick = { open(SettingsPage.Accounts) },
                 )
             }

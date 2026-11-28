@@ -435,7 +435,7 @@ class NativeEngine(
     }
 
     /** Leaves like a closing tab: finalizes the current track, then the two DELETEs of SESSION.md. */
-    suspend fun close() {
+    suspend fun close(fast: Boolean = false) {
         dealerJob?.cancel()
         activeEventHttpJob?.cancel()
         reportQueue.close()
@@ -446,6 +446,23 @@ class NativeEngine(
                 current = null
                 publishNow(null, 0, false)
             }
+        }
+        if (fast) {
+            outgoing?.let { runCatching { player.stop() } }
+            runCatchingNonCancel {
+                val delSeq = stateLock.withLock { ++seq }
+                sp.send(
+                    "DELETE", "$spclient/track-playback/v1/devices/$deviceId", HeaderProfile.PLAYER,
+                    body = buildJsonObject {
+                        put("seq_num", delSeq); put("state_ref", kotlinx.serialization.json.JsonNull)
+                        put("sub_state", buildJsonObject {}); put("previous_position", 0); put("debug_source", "deregister")
+                    }.toString().encodeToByteArray(),
+                    contentType = "application/json",
+                )
+                sp.send("DELETE", "$spclient/connect-state/v1/devices/hobs_${deviceId.take(35)}", HeaderProfile.PLAYER)
+            }
+            socket?.close()
+            return
         }
         reportLock.withLock {
             // A report the server refuses must not keep the device registered and the socket open.
@@ -1775,12 +1792,14 @@ class NativeEngine(
 
         action.endedShownPos?.let { shown ->
             var abortAdvance = false
+            val nextIsAd = action.endedNextTrack != null && action.endedNextState != null &&
+                isAdTrack(action.endedNextTrack, action.endedNextState)
             reportLock.withLock {
                 if (stateLock.withLock { trackGeneration != gen }) {
                     abortAdvance = true
                     return@withLock
                 }
-                finalize(p, "trackdone", action.endedNextState?.id, shown, keepMachine = true)
+                finalize(p, "trackdone", if (nextIsAd) null else action.endedNextState?.id, shown, keepMachine = !nextIsAd)
                 if (stateLock.withLock { trackGeneration != gen }) {
                     abortAdvance = true
                     return@withLock

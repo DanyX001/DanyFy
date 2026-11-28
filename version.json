@@ -1,9 +1,9 @@
 {
-  "version": "1.0.235",
-  "versionCode": 235,
+  "version": "1.0.236",
+  "versionCode": 236,
   "pageUrl": "http://5.252.101.69:8096/",
-  "apkUrlArm64": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.235-ARMv8.apk",
-  "apkUrlArm32": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.235-ARMv7.apk",
-  "apkUrlUniversal": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.235-Universal.apk",
-  "notes": "- Full Queue for Searched Songs & Song Radio: Merges NativeEngine's confirmed next track with the full Connect queue and 20 Song Radio recommendations so the Queue sheet always shows all upcoming tracks\n- Removed Support, Ko-fi & Credits Popups: Disabled all donation/support reminder popups and removed Support/Ko-fi/Credits entries from Settings and Profile menus\n- Direct In-App Update Checker: Connected Settings > About update checker directly to your DanyFy build server (5.252.101.69:8096) and GitHub repo for one-tap in-app APK updates\n- Responsive & Tactile UI: Asymmetric 1800-stiffness press springs, faster 260ms page/sheet transitions, and zero-latency main-thread haptic feedback"
+  "apkUrlArm64": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.236-ARMv8.apk",
+  "apkUrlArm32": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.236-ARMv7.apk",
+  "apkUrlUniversal": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.236-Universal.apk",
+  "notes": "- Active Account Name in Settings & Profile: Settings > Accounts and the Profile account dialog now always display your active account (e.g. DanyX001) instead of saved inactive accounts, and cleanly stop the native audio engine on account switch\n- Zero Advertisement Hang at Track End: Immediate EngineEvent.AdBreak device recycling with synchronous fast deregistration, standalone Song Radio recommendation advance, and Advertisement state suppression so songs ending into an ad break seamlessly advance to the next song\n- Full Queue & Direct In-App Update Checker: Shows all 20+ upcoming tracks in Queue and checks 5.252.101.69:8096/version.json directly"
 }

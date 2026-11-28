@@ -64,6 +64,7 @@ private fun accountsLook(): AccountsLook =
 fun AccountsList(onLeave: () -> Unit = {}) {
     val look = accountsLook()
     val ctx = LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(Unit) { com.music.spotui.data.api.ProfileCache.ensure(ctx) }
     val host = MyspotiRuntime.host
     val list by host.accounts.list.collectAsStateWithLifecycle()
     val livePlan by app.myspoti.spotify.AccountPlan.premium.collectAsStateWithLifecycle()
@@ -174,12 +175,26 @@ fun AccountsList(onLeave: () -> Unit = {}) {
     )
 }
 
-/** The detail of the "Switch account" row behind the avatar: the other accounts kept, by name. */
+/** The detail of the "Accounts" row in Settings: the currently signed-in account's name. */
+@Composable
+fun currentAccountDetail(): String {
+    val ctx = LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(Unit) { com.music.spotui.data.api.ProfileCache.ensure(ctx) }
+    val list by MyspotiRuntime.host.accounts.list.collectAsStateWithLifecycle()
+    val activeName = com.music.spotui.data.api.ProfileCache.name?.takeIf { it.isNotBlank() }
+        ?: list.current?.name?.takeIf { it.isNotBlank() }
+    return activeName ?: stringResource(R.string.accounts_switch_row_detail)
+}
+
+/** The detail of the "Switch account" row behind the avatar: the active account, or the prompt to switch/add. */
 @Composable
 fun switchAccountDetail(): String {
+    val ctx = LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(Unit) { com.music.spotui.data.api.ProfileCache.ensure(ctx) }
     val list by MyspotiRuntime.host.accounts.list.collectAsStateWithLifecycle()
-    return list.others.mapNotNull { it.name?.takeIf { n -> n.isNotBlank() } }.joinToString(", ")
-        .ifEmpty { stringResource(R.string.accounts_switch_row_detail) }
+    val activeName = com.music.spotui.data.api.ProfileCache.name?.takeIf { it.isNotBlank() }
+        ?: list.current?.name?.takeIf { it.isNotBlank() }
+    return activeName ?: stringResource(R.string.accounts_switch_row_detail)
 }
 
 /** [AccountsList] in a sheet of the current look, from the sheet behind the avatar. */

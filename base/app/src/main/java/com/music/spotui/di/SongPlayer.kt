@@ -415,14 +415,23 @@ object SongPlayer {
                         AD_SHOW_AFTER_MS
                     }
                     kotlinx.coroutines.delay(waitMs)
-                    if (!MyspotiRuntime.spotify.player.adPlaying.value || LocalPlayer.active.value) return@collectLatest
+                    if (!MyspotiRuntime.spotify.player.adPlaying.value || LocalPlayer.active.value || NativeAudio.isRecoveringAd || (NativeAudio.on && NativeAudio.holdsPlayback)) return@collectLatest
                     // Spotify limiting playback holds every repair, the ad's too: the limit is what
                     // the user is told (its toast), not an ad for as long as it lasts (50 s seen).
                     // The same when it refuses the account its licences (#134): the ad it is stuck on
                     // stays out of the screens, the toast said why nothing plays.
                     while (MyspotiRuntime.host.licenseLimited() || MyspotiRuntime.spotify.player.licencesHeld) kotlinx.coroutines.delay(1_000)
+                    if (NativeAudio.isRecoveringAd || (NativeAudio.on && NativeAudio.holdsPlayback)) return@collectLatest
                 }
                 onAdPlaying(on)
+            }
+        }
+        scope.launch {
+            NativeAudio.now.collect { now ->
+                if (now != null && adState.value) {
+                    MyspotiRuntime.spotify.player.clearAdStateForNativeRecovery()
+                    onAdPlaying(false)
+                }
             }
         }
         scope.launch {
@@ -633,6 +642,7 @@ object SongPlayer {
         _activeDevice.value = null; _sleepEndsAt.value = null; sleepFade?.cancel(); main.removeCallbacks(sleepFadeRunnable); sleepTrackId = null; spotifyFallbackId = null
         // The Connect device picked was the account's that leaves: the next one starts on this phone.
         chosenRemote = null
+        NativeAudio.clearSession()
         com.music.spotui.ui.components.CanvasPlayer.onTrackEnded(Graph.app)
         com.music.spotui.data.offline.ExtStreamCache.clearActiveCache(Graph.app)
         boundState?.let { state ->
@@ -806,6 +816,17 @@ object SongPlayer {
         val verifiedSkipTarget = skippedTarget?.takeIf { candidate ->
             candidate != curUri && (playlistUris == null || !isPlaylist || candidate in playlistUris)
         }
+        val uiQueueUris = boundState?.queue?.value.orEmpty().mapNotNull { s -> valid(songUri(s)) }
+        val upcomingUiQueue = if (curUri != null) {
+            val at = uiQueueUris.indexOfFirst { it == curUri }
+            if (at >= 0) uiQueueUris.drop(at + 1) else uiQueueUris
+        } else {
+            uiQueueUris
+        }
+        val fallbackQueueUri = upcomingUiQueue.firstOrNull { u ->
+            u != curUri && u != skippedFrom &&
+                (playlistUris == null || !isPlaylist || u in playlistUris)
+        }
 
         if (dueNext != null && dueProvider.equals("autoplay", ignoreCase = true)) {
             return AdRecoveryTarget(contextUri = dueNext, trackUri = null, shuffle = isShuffleOn())
@@ -819,7 +840,12 @@ object SongPlayer {
             dueNext != null && (playlistUris == null || !isPlaylist || dueProvider == "queue" || dueNext in playlistUris) -> dueNext
             firstQueued != null -> firstQueued.uri
             npNextUri != null -> npNextUri
+            fallbackQueueUri != null -> fallbackQueueUri
             else -> null
+        }
+
+        if (ctx != null && ctx.startsWith(SPOTIFY_TRACK_PREFIX) && verifiedNext != null && verifiedNext != curUri) {
+            return AdRecoveryTarget(contextUri = verifiedNext, trackUri = null, shuffle = isShuffleOn())
         }
 
         val safeCurUri = curUri?.takeIf { it != skippedFrom }

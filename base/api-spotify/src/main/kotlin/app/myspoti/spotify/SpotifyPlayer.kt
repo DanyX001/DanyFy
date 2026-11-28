@@ -74,6 +74,7 @@ class SpotifyPlayer(private val bridge: Bridge, private val scope: CoroutineScop
         val a = outside()
         if (a?.holdsPlayback == true && !a.mirrors) {
             clusterSawAdUri = null
+            if (webAdPlaying) webStaleAdDismissed = true
             val shown = EngineStates.overlay(_state.value, a.now?.value)
             _shown.value = shown
             _playsElsewhere.value = false
@@ -248,6 +249,16 @@ class SpotifyPlayer(private val bridge: Bridge, private val scope: CoroutineScop
         webPreAdTrackUri = null
         clusterSawAdUri = null
         syncAdPlaying(false)
+    }
+
+    /** Clears any stale web/cluster ad state once the native engine recovers or takes over playback. */
+    fun clearAdStateForNativeRecovery() {
+        adAheadSkippedFor = null
+        webAdPlaying = false
+        webStaleAdDismissed = true
+        webPreAdTrackUri = null
+        clusterSawAdUri = null
+        syncAdPlaying(false, _shown.value)
     }
 
     /**

@@ -117,6 +117,17 @@ internal object AdRecoveryPolicy {
                 shuffle = appTarget?.shuffle ?: lastPlayed?.shuffle,
             )
         }
+        if (cleanHintTrack == null && cleanAppCtx != null && cleanAppCtx.startsWith("spotify:track:") &&
+            cleanAppTrack == null && cleanAppCtx != curTrack && cleanAppCtx != cleanSkippedFrom
+        ) {
+            return AdRecoveryTarget(
+                contextUri = cleanAppCtx,
+                trackUri = null,
+                index = null,
+                order = null,
+                shuffle = appTarget?.shuffle ?: lastPlayed?.shuffle,
+            )
+        }
 
         // Defend against album `group_uri` poisoning when `hintCtx` collapsed to `spotify:album:...`
         // while the known active list context (containing `curTrack`) is a playlist/collection.
@@ -173,6 +184,21 @@ internal object AdRecoveryPolicy {
         }
         if (track == null) {
             track = (curTrack ?: cleanLastTrack)?.takeIf { it != cleanSkippedFrom }
+        }
+
+        if (ctx != null && ctx.startsWith("spotify:track:")) {
+            val standaloneNext = listOfNotNull(verifiedHintTrack, cleanAppTrack, cleanAppCtx)
+                .firstOrNull { it.startsWith("spotify:track:") && it != ctx && it != curTrack && it != cleanSkippedFrom }
+                ?: track?.takeIf { it.startsWith("spotify:track:") && it != cleanSkippedFrom }
+            if (standaloneNext != null) {
+                return AdRecoveryTarget(
+                    contextUri = standaloneNext,
+                    trackUri = null,
+                    index = null,
+                    order = null,
+                    shuffle = effectiveShuffle,
+                )
+            }
         }
 
         val resolvedCtx = ctx ?: track ?: return null
@@ -259,6 +285,19 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
         if (engine == null) return
         log("the listen mirror plays on the page: the engine stops until the account's songs play again")
         scope.launch { runCatching { stop() } }
+    }
+
+    /** Stops and unregisters the active engine when the user logs out or switches Spotify accounts. */
+    fun clearSession() {
+        lastLocalPlay = null
+        asideUntil = 0L
+        consecutiveStartFailures = 0
+        consecutivePlayerFailures = 0
+        consecutiveRateLimitFailures = 0
+        if (engine != null || player != null) {
+            log("account session cleared: stopping native engine")
+            scope.launch { runCatching { stop() } }
+        }
     }
 
     fun set(context: Context, value: Boolean) {
@@ -616,30 +655,31 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
         reason: String,
         explicitTarget: AdRecoveryTarget? = null,
     ): Boolean = adRecoveryMutex.withLock {
-        val now = System.currentTimeMillis()
-        if ((failed == null || explicitTarget != null) && now - lastAdRecoveryAtMs < AdRecoveryPolicy.RECOVERY_DEDUP_MS) {
-            return@withLock false
-        }
-        if (explicitTarget != null && holdsPlayback) {
-            return@withLock false
-        }
-        while (adRecoveryTimes.isNotEmpty() && now - adRecoveryTimes.first() >= AdRecoveryPolicy.WINDOW_MS) {
-            adRecoveryTimes.removeFirst()
-        }
-        val currentEngine = lock.withLock { engine }
-        if (failed != null && currentEngine !== failed && (explicitTarget == null || currentEngine != null)) {
-            return@withLock false
-        }
-        if (!AdRecoveryPolicy.canRecover(adRecoveryTimes.toList(), now)) {
-            setAside(reason)
-            return@withLock false
-        }
         recoveringAd = true
         try {
+            val now = System.currentTimeMillis()
+            if ((failed == null || explicitTarget != null) && now - lastAdRecoveryAtMs < AdRecoveryPolicy.RECOVERY_DEDUP_MS) {
+                return@withLock false
+            }
+            if (explicitTarget != null && holdsPlayback) {
+                return@withLock false
+            }
+            while (adRecoveryTimes.isNotEmpty() && now - adRecoveryTimes.first() >= AdRecoveryPolicy.WINDOW_MS) {
+                adRecoveryTimes.removeFirst()
+            }
+            val currentEngine = lock.withLock { engine }
+            if (failed != null && currentEngine !== failed && (explicitTarget == null || currentEngine != null)) {
+                return@withLock false
+            }
+            if (!AdRecoveryPolicy.canRecover(adRecoveryTimes.toList(), now)) {
+                setAside(reason)
+                return@withLock false
+            }
+            MyspotiRuntime.spotify.player.clearAdStateForNativeRecovery()
             val snap = (failed ?: currentEngine)?.adRecoverySnapshot()
             val appTarget = explicitTarget ?: runCatching { adRecoveryTarget?.invoke(snap) }.getOrNull()
             val skippedFrom = runCatching { lastSkippedFromTrack?.invoke() }.getOrNull()
-            val target = AdRecoveryPolicy.pickRecoveryTarget(
+            val rawTarget = AdRecoveryPolicy.pickRecoveryTarget(
                 hintCtx = snap?.contextUri,
                 hintTrack = snap?.nextTrackUri,
                 appTarget = appTarget,
@@ -649,6 +689,33 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
                 repeatAll = SongPlayer.repeatMode.value == 1,
                 skippedFromTrack = skippedFrom,
             )
+            val target = if (
+                rawTarget == null ||
+                (rawTarget.contextUri != null && rawTarget.contextUri.startsWith("spotify:track:") && rawTarget.trackUri == null &&
+                    (rawTarget.contextUri == snap?.trackUri || rawTarget.contextUri == skippedFrom))
+            ) {
+                val seedUri = snap?.trackUri ?: rawTarget?.contextUri ?: skippedFrom
+                val seedId = seedUri?.removePrefix("spotify:track:")?.takeIf { it.isNotBlank() && !it.startsWith("spotify:") }
+                val recSong = if (seedId != null) {
+                    runCatching {
+                        withTimeoutOrNull(2_500L) {
+                            Graph.api.getRecommendations(listOf(seedId))
+                        }
+                    }.getOrNull()?.firstOrNull { s ->
+                        val u = "spotify:track:${s.spotifyTrackId}"
+                        s.spotifyTrackId.isNotBlank() && u != seedUri && u != skippedFrom
+                    }
+                } else null
+                if (recSong != null) {
+                    val recUri = "spotify:track:${recSong.spotifyTrackId}"
+                    log("resolved standalone ad recovery target via recommendations: $recUri")
+                    AdRecoveryTarget(contextUri = recUri, trackUri = null, shuffle = rawTarget?.shuffle)
+                } else {
+                    rawTarget
+                }
+            } else {
+                rawTarget
+            }
             adRecoveryTimes.addLast(now)
             lastAdRecoveryAtMs = now
             log("recycling native device after ad ($reason) -> ${target?.trackUri ?: target?.contextUri ?: "no target"}")
@@ -665,10 +732,8 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
                 }
             }
             if (toClose != null || toRelease != null) {
-                scope.launch {
-                    runCatching { withTimeoutOrNull(1_500L) { toClose?.close() } }
-                    toRelease?.release()
-                }
+                runCatching { withTimeoutOrNull(800L) { toClose?.close(fast = true) } }
+                runCatching { toRelease?.release() }
             }
             if (target?.contextUri == null) return@withLock false
             return@withLock runCatching {
@@ -687,6 +752,7 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
                         throw firstErr
                     }
                 }
+                MyspotiRuntime.spotify.player.clearAdStateForNativeRecovery()
                 true
             }.onFailure { err ->
                 log("native ad recovery failed: ${err.message}")
@@ -806,6 +872,11 @@ object NativeAudio : app.myspoti.spotify.AccountAudio, app.myspoti.spotify.sync.
             e.events.collect { ev ->
                 lastEvent = ev.toString().take(120)
                 log("event $ev")
+                if (ev is EngineEvent.AdBreak) {
+                    recoveringAd = true
+                    MyspotiRuntime.spotify.player.clearAdStateForNativeRecovery()
+                    scope.launch { recoverFromAd(e, "ad break ${ev.uri}") }
+                }
                 if (ev is EngineEvent.ContextEnded) {
                     val last = lastLocalPlay
                     scope.launch { runCatching { onContextEnded?.invoke(last) } }
