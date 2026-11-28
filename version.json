@@ -1,9 +1,9 @@
 {
-  "version": "1.0.236",
-  "versionCode": 236,
+  "version": "1.0.237",
+  "versionCode": 237,
   "pageUrl": "http://5.252.101.69:8096/",
-  "apkUrlArm64": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.236-ARMv8.apk",
-  "apkUrlArm32": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.236-ARMv7.apk",
-  "apkUrlUniversal": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.236-Universal.apk",
-  "notes": "- Active Account Name in Settings & Profile: Settings > Accounts and the Profile account dialog now always display your active account (e.g. DanyX001) instead of saved inactive accounts, and cleanly stop the native audio engine on account switch\n- Zero Advertisement Hang at Track End: Immediate EngineEvent.AdBreak device recycling with synchronous fast deregistration, standalone Song Radio recommendation advance, and Advertisement state suppression so songs ending into an ad break seamlessly advance to the next song\n- Full Queue & Direct In-App Update Checker: Shows all 20+ upcoming tracks in Queue and checks 5.252.101.69:8096/version.json directly"
+  "apkUrlArm64": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.237-ARMv8.apk",
+  "apkUrlArm32": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.237-ARMv7.apk",
+  "apkUrlUniversal": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.237-Universal.apk",
+  "notes": "- Date Added in Playlists & Liked Songs: Every song row now shows when it was added (dd.MM.yyyy), like the desktop app's Date added column\n- Active account shown in Settings & Profile, and no more Advertisement hang at track end (from 1.0.236)"
 }

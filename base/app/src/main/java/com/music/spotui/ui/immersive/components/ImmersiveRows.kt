@@ -97,6 +97,8 @@ fun ImmersiveSongRow(
     liked: Boolean = false,
     offline: OfflineStatus? = null,
     trailing: (@Composable () -> Unit)? = null,
+    /** When the song was added to the playlist (`dd.MM.yyyy`), as the desktop app's "Date added" column. */
+    addedDate: String? = null,
 ) {
     val titleColor by animateColorAsState(
         targetValue = if (current) Immersive.Accent else Immersive.Text,
@@ -144,15 +146,22 @@ fun ImmersiveSongRow(
             DownloadBadge(offline, size = 14.dp)
             Spacer(Modifier.width(6.dp))
         }) else null,
-        trailing = if (liked) ({
+        trailing = if (liked || addedDate != null) ({
+            if (addedDate != null) {
+                Spacer(Modifier.width(8.dp))
+                Text(text = addedDate, style = Immersive.Caption.copy(color = Immersive.TextSecondary), maxLines = 1)
+                Spacer(Modifier.width(if (liked || trailing != null) 10.dp else 4.dp))
+            }
             trailing?.invoke()
-            Spacer(Modifier.width(8.dp))
-            Icon(
-                Icons.Rounded.Star,
-                contentDescription = stringResource(R.string.liked_song),
-                tint = Immersive.Accent,
-                modifier = Modifier.size(18.dp),
-            )
+            if (liked) {
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    Icons.Rounded.Star,
+                    contentDescription = stringResource(R.string.liked_song),
+                    tint = Immersive.Accent,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }) else trailing,
     )
 }

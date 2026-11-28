@@ -558,6 +558,8 @@ private fun ImmersiveContextContent(navController: NavController, vm: ContextVie
                             // (what Spotify last reported, the list's one batch check, the downloads kept on the phone).
                             liked = com.music.spotui.di.trackSaved(song.spotifyTrackId, savedTracks),
                             offline = OfflineStore.statusOf(song.spotifyTrackId),
+                            // Playlists and Liked Songs: the day the song was added, as on the desktop app.
+                            addedDate = if (numbered) null else com.music.spotui.ui.components.AddedDate.format(song.addedAt),
                             // Collaborative: the small face of who added the song. Being moved: its handle.
                             trailing = vm.adders.value.let { a -> a["row:" + song.rowUid] ?: a["song:" + song.spotifyTrackId] }.let { m ->
                                 val face: @Composable () -> Unit = {

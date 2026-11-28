@@ -1165,6 +1165,7 @@ private fun ContextContent(navController: NavController, vm: ContextViewModel, p
                 saved = com.music.spotui.di.trackSaved(song.spotifyTrackId, saved),
                 offline = com.music.spotui.data.offline.OfflineStore.statusOf(song.spotifyTrackId),
                 addedBy = vm.adders.value.let { a -> a["row:" + song.rowUid] ?: a["song:" + song.spotifyTrackId] },
+                addedDate = if (p.type == "album") null else com.music.spotui.ui.components.AddedDate.format(song.addedAt),
                 onClick = { dismissKeyboard(); if (SmartShuffle.on.value == p.uri) vm.playSmart(p, song) else vm.play(p, song, sort) },
                 onMore = { menuSong = song },
                 onSaved = { savedInSong = song },
@@ -1437,6 +1438,8 @@ private fun TrackRow(
     /** The green check tapped: where the song is saved, to take it out (as in the official app). */
     onSaved: () -> Unit = {},
     addedBy: app.myspoti.api.PlaylistMember? = null,
+    /** When the song was added (`dd.MM.yyyy`), as the desktop app's "Date added" column. */
+    addedDate: String? = null,
     /** The song can be moved: a drag on this handle carries it. */
     handle: Modifier? = null,
 ) {
@@ -1501,6 +1504,10 @@ private fun TrackRow(
                 }
                 Text(song.singer, color = AppText.copy(alpha = 0.7f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+        }
+        // Playlists and Liked Songs: the day the song was added.
+        addedDate?.let { d ->
+            Text(d, color = AppText.copy(alpha = 0.6f), fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(start = 8.dp, end = 8.dp))
         }
         // Collaborative playlist: who added this song.
         addedBy?.let { m ->
