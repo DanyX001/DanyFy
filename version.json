@@ -1,9 +1,9 @@
 {
-  "version": "1.0.237",
-  "versionCode": 237,
+  "version": "1.0.238",
+  "versionCode": 238,
   "pageUrl": "http://5.252.101.69:8096/",
-  "apkUrlArm64": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.237-ARMv8.apk",
-  "apkUrlArm32": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.237-ARMv7.apk",
-  "apkUrlUniversal": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.237-Universal.apk",
-  "notes": "- Date Added in Playlists & Liked Songs: Every song row now shows when it was added (dd.MM.yyyy), like the desktop app's Date added column\n- Active account shown in Settings & Profile, and no more Advertisement hang at track end (from 1.0.236)"
+  "apkUrlArm64": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.238-ARMv8.apk",
+  "apkUrlArm32": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.238-ARMv7.apk",
+  "apkUrlUniversal": "http://5.252.101.69:8096/downloads/DanyFy-Beta-1.0.238-Universal.apk",
+  "notes": "- Date Added in Landscape Mode Only: Shows when songs were added (dd.MM.yyyy) only in landscape mode and only on your own playlists, collaborative playlists you can edit, and Liked Songs\n- No Placeholder 01.01.1970 Dates: Filters out Spotify Unix epoch placeholder dates (e.g. on Daily Mixes) and hides Date Added on algorithmic/external playlists\n- Active account display and seamless track-end ad recovery (from 1.0.236)"
 }

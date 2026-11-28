@@ -656,6 +656,9 @@ private fun ContextContent(navController: NavController, vm: ContextViewModel, p
         cache.name
         cache.id?.let { id -> p.ownerUri == "spotify:user:$id" } == true
     }
+    val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val isLiked = p.type == "liked" || p.type == "liked-artist"
+    val showAddedDate = isLandscape && (isLiked || (p.type == "playlist" && !p.isBlend && (ownPlaylist || vm.editableContext.value)))
     // A11: confirmations (and their Undo) float above the list, not inside a menu that closes.
     val snackbar = remember { androidx.compose.material3.SnackbarHostState() }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -1165,7 +1168,7 @@ private fun ContextContent(navController: NavController, vm: ContextViewModel, p
                 saved = com.music.spotui.di.trackSaved(song.spotifyTrackId, saved),
                 offline = com.music.spotui.data.offline.OfflineStore.statusOf(song.spotifyTrackId),
                 addedBy = vm.adders.value.let { a -> a["row:" + song.rowUid] ?: a["song:" + song.spotifyTrackId] },
-                addedDate = if (p.type == "album") null else com.music.spotui.ui.components.AddedDate.format(song.addedAt),
+                addedDate = if (showAddedDate) com.music.spotui.ui.components.AddedDate.format(song.addedAt) else null,
                 onClick = { dismissKeyboard(); if (SmartShuffle.on.value == p.uri) vm.playSmart(p, song) else vm.play(p, song, sort) },
                 onMore = { menuSong = song },
                 onSaved = { savedInSong = song },

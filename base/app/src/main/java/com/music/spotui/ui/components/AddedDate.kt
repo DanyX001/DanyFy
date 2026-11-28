@@ -15,10 +15,13 @@ import java.util.concurrent.ConcurrentHashMap
 object AddedDate {
     private val pattern: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
 
+    /** Spotify sends Unix epoch 0 (`1970-01-01T00:00:00Z`) as a placeholder on algorithmic mixes. */
+    private val MIN_VALID_DATE: LocalDate = LocalDate.of(2000, 1, 1)
+
     /** Formatted once per value: this runs for every visible row on every recomposition. */
     private val cache = ConcurrentHashMap<String, String>()
 
-    /** [iso] as `dd.MM.yyyy`, or null when it is blank or not a date. */
+    /** [iso] as `dd.MM.yyyy`, or null when it is blank, a sentinel epoch date, or not a date. */
     fun format(iso: String?): String? {
         val raw = iso?.trim().orEmpty()
         if (raw.isEmpty()) return null
@@ -26,9 +29,10 @@ object AddedDate {
     }
 
     internal fun parse(raw: String): LocalDate? {
-        runCatching { return Instant.parse(raw).atZone(ZoneId.systemDefault()).toLocalDate() }
-        runCatching { return OffsetDateTime.parse(raw).atZoneSameInstant(ZoneId.systemDefault()).toLocalDate() }
-        runCatching { return LocalDate.parse(raw.take(10)) }
-        return null
+        val date = runCatching { Instant.parse(raw).atZone(ZoneId.systemDefault()).toLocalDate() }.getOrNull()
+            ?: runCatching { OffsetDateTime.parse(raw).atZoneSameInstant(ZoneId.systemDefault()).toLocalDate() }.getOrNull()
+            ?: runCatching { LocalDate.parse(raw.take(10)) }.getOrNull()
+            ?: return null
+        return date.takeUnless { it.isBefore(MIN_VALID_DATE) }
     }
 }
